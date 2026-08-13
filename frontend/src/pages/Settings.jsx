@@ -24,7 +24,7 @@ export default function Settings() {
       <PageHeader title="Settings" subtitle={`Signed in as ${user?.email} · ${user?.auth_provider === "google" ? "Google account" : "Email & password"}`} />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="rounded-sm bg-muted h-9 flex-wrap h-auto">
-          {[["business", "Business"], ["accounts", "Payment Accounts"], ["products", "Products"],
+          {[["business", "Business"], ["access", "Access"], ["accounts", "Payment Accounts"], ["products", "Products"],
             ["recurring", "Recurring Expenses"], ["demo", "Demo Data"], ["integrations", "Integrations"],
             ["backup", "Backup"], ["audit", "Audit Log"]].map(([k, l]) => (
             <TabsTrigger key={k} value={k} className="rounded-sm text-xs" data-testid={`settings-tab-${k}`}>{l}</TabsTrigger>
@@ -32,6 +32,7 @@ export default function Settings() {
         </TabsList>
 
         <TabsContent value="business" className="mt-4"><BusinessSettings /></TabsContent>
+        <TabsContent value="access" className="mt-4"><AccessSettings /></TabsContent>
         <TabsContent value="accounts" className="mt-4"><Accounts /></TabsContent>
         <TabsContent value="products" className="mt-4"><Products /></TabsContent>
         <TabsContent value="recurring" className="mt-4"><Recurring /></TabsContent>
@@ -83,6 +84,47 @@ function BusinessSettings() {
         <div className="sm:col-span-2">
           <Disclaimer>The default GST rate only pre-fills new transactions. Every transaction keeps its own GST treatment.</Disclaimer>
         </div>
+      </div>
+    </Section>
+  );
+}
+
+function AccessSettings() {
+  const [cfg, setCfg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.get("/auth/config").then(({ data }) => setCfg(data)).catch(() => setCfg(false));
+  }, []);
+  const toggle = async (v) => {
+    setBusy(true);
+    try {
+      const { data } = await api.put("/auth/config", { allow_signups: v });
+      setCfg(data);
+      toast.success(v ? "New sign-ups enabled" : "New sign-ups disabled");
+    } catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
+  };
+  if (cfg === null) return <Loading />;
+  if (cfg === false) return <Empty title="Unable to load access settings" />;
+  return (
+    <Section title="Login page access" testId="access-settings">
+      <div className="p-4 space-y-4 max-w-2xl">
+        <div className="border border-border p-4 flex items-center justify-between gap-4" data-testid="allow-signups-row">
+          <div>
+            <div className="text-sm font-semibold">Allow new sign-ups</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              When ON, the login page shows the &ldquo;Create account&rdquo; option and &ldquo;Continue with Google&rdquo;.
+              When OFF, only existing users can sign in with email &amp; password &mdash; both the register link and
+              the Google button are hidden, and any register/Google API call is refused.
+            </div>
+          </div>
+          <Switch
+            checked={!!cfg.allow_signups}
+            onCheckedChange={toggle}
+            disabled={busy}
+            data-testid="allow-signups-switch"
+          />
+        </div>
+        <Disclaimer>Turn this off once your one and only admin account is set up. Existing signed-in sessions are not affected.</Disclaimer>
       </div>
     </Section>
   );

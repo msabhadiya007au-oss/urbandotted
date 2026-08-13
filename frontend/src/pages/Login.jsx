@@ -15,6 +15,17 @@ export default function Login() {
   const [f, setF] = useState({ email: "", password: "", name: "", business_name: "Urban Dotted" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [allowSignups, setAllowSignups] = useState(true);
+
+  useEffect(() => {
+    api.get("/auth/config")
+      .then(({ data }) => setAllowSignups(data.allow_signups !== false))
+      .catch(() => setAllowSignups(true));
+  }, []);
+
+  useEffect(() => {
+    if (!allowSignups && mode === "register") setMode("login");
+  }, [allowSignups, mode]);
 
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
 
@@ -127,25 +138,29 @@ export default function Login() {
             </Button>
           </form>
 
-          <div className="flex items-center gap-3 my-5">
-            <span className="h-px flex-1 bg-border" />
-            <span className="overline">or</span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
+          {allowSignups && (
+            <>
+              <div className="flex items-center gap-3 my-5">
+                <span className="h-px flex-1 bg-border" />
+                <span className="overline">or</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
 
-          <Button variant="outline" onClick={google} data-testid="google-login-btn"
-            className="w-full rounded-sm h-10 border-border hover:bg-accent">
-            Continue with Google
-          </Button>
+              <Button variant="outline" onClick={google} data-testid="google-login-btn"
+                className="w-full rounded-sm h-10 border-border hover:bg-accent">
+                Continue with Google
+              </Button>
 
-          <p className="text-xs text-muted-foreground mt-6 text-center">
-            {mode === "login" ? "No account yet?" : "Already registered?"}{" "}
-            <button type="button" data-testid="auth-toggle"
-              onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
-              className="text-foreground font-semibold underline underline-offset-2 hover:text-primary">
-              {mode === "login" ? "Create one" : "Sign in"}
-            </button>
-          </p>
+              <p className="text-xs text-muted-foreground mt-6 text-center">
+                {mode === "login" ? "No account yet?" : "Already registered?"}{" "}
+                <button type="button" data-testid="auth-toggle"
+                  onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
+                  className="text-foreground font-semibold underline underline-offset-2 hover:text-primary">
+                  {mode === "login" ? "Create one" : "Sign in"}
+                </button>
+              </p>
+            </>
+          )}
         </div>
       </div>
     </div>

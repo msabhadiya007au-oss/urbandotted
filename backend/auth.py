@@ -127,9 +127,32 @@ class ResetIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class AuthConfigIn(BaseModel):
+    allow_signups: bool
+
+
+# ---------- auth config (single global toggle) ----------
+_CONFIG_DOC_ID = "auth"
+_CONFIG_DEFAULTS = {"allow_signups": True}
+
+
+async def _get_auth_config() -> dict:
+    doc = await db.app_config.find_one({"_id": _CONFIG_DOC_ID}) or {}
+    return {**_CONFIG_DEFAULTS, **{k: v for k, v in doc.items() if k in _CONFIG_DEFAULTS}}
+
+
+@router.get("/config")
+async def get_auth_config():
+    """Public: whether new sign-ups (register + Google) are enabled."""
+    return await _get_auth_config()
+
+
 # ---------- endpoints ----------
 @router.post("/register")
 async def register(body: RegisterIn, response: Response):
+    cfg = await _get_auth_config()
+    if not cfg.get("allow_signups", True):
+        raise HTTPException(status_code=403, detail="New sign-ups are disabled")
     email = body.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="An account with this email already exists")
@@ -176,6 +199,9 @@ async def google_session(request: Request, response: Response):
     email = (data.get("email") or "").lower().strip()
     user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user:
+        cfg = await _get_auth_config()
+        if not cfg.get("allow_signups", True):
+            raise HTTPException(status_code=403, detail="New sign-ups are disabled")
         user_id = new_id("user")
         business_id = await create_default_business(user_id, "Urban Dotted")
         user = {
@@ -315,6 +341,18 @@ async def reset_password(body: ResetIn):
                               {"$set": {"password_hash": hash_password(body.password)}})
     await db.password_reset_tokens.update_one({"token": body.token}, {"$set": {"used": True}})
     return {"ok": True}
+
+
+@router.put("/config")
+async def put_auth_config(body: AuthConfigIn, user: dict = Depends(get_current_user)):
+    if user.get("role") != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner can change access settings")
+    await db.app_config.update_one(
+        {"_id": _CONFIG_DOC_ID},
+        {"$set": {"allow_signups": bool(body.allow_signups)}},
+        upsert=True,
+    )
+    return await _get_auth_config()
 
 
 async def seed_admin():
