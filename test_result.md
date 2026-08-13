@@ -430,17 +430,35 @@ backend:
         comment: "POST /api/export/accountant returns ZIP file (6388 bytes) with reports and receipts. Content-type application/zip verified."
 
 frontend:
-  - task: "Frontend testing"
-    implemented: "NA"
-    working: "NA"
-    file: "NA"
+  - task: "Login flow with email/password authentication"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Login.jsx"
     stuck_count: 0
-    priority: "low"
+    priority: "high"
     needs_retesting: false
     status_history:
-      - working: "NA"
+      - working: false
+        agent: "user"
+        comment: "User reported unable to login with credentials admin@urbandotted.com.au / UrbanDotted!2026. Root cause: missing /app/frontend/.env file, REACT_APP_BACKEND_URL was undefined causing axios calls to hit 'undefined/api/auth/login'"
+      - working: true
+        agent: "main"
+        comment: "Created /app/frontend/.env with REACT_APP_BACKEND_URL=https://3db81f85-9e9c-4c97-ab8d-79b2831da898.preview.emergentagent.com"
+      - working: true
         agent: "testing"
-        comment: "Frontend testing not performed as per review request instructions"
+        comment: "End-to-end login flow verified successfully. Test results: (1) Login page loads at root URL with all form elements present, (2) Credentials filled: admin@urbandotted.com.au / UrbanDotted!2026, (3) Form submission successful - POST /api/auth/login returned 200 OK, (4) User redirected to /dashboard, (5) Dashboard loaded with 13 KPI cards and all data, (6) Authenticated API calls working (GET /api/dashboard, GET /api/reminders both 200 OK), (7) No console errors, no network errors, no auth-error element visible. Login fix confirmed working."
+  
+  - task: "Dashboard page rendering and data loading"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Dashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Dashboard smoke test passed. After successful login, dashboard page rendered correctly with: (1) dashboard-page element present, (2) kpi-grid with 13 KPI cards (Gross Sales, Net Sales, Refunds, COGS, Gross Profit, Operating Expenses, Operating Profit, GST Collected, GST Paid, Est. GST Position, Cash Inflow, Cash Outflow), (3) All KPIs displaying data (currently $0 as expected for empty business), (4) Charts and sections rendering, (5) Authenticated API calls successful."
 
 metadata:
   created_by: "testing_agent"
@@ -452,14 +470,17 @@ metadata:
 
 test_plan:
   current_focus:
-    - "All backend endpoints tested"
+    - "Login flow verification complete"
+    - "Dashboard smoke test complete"
   stuck_tasks: []
-  test_all: true
+  test_all: false
   test_priority: "high_first"
 
 agent_communication:
   - agent: "testing"
     message: "Deployment smoke test completed successfully. All 27 backend endpoints tested and passing. Key findings: (1) LOCAL storage backend working correctly - upload/download validated with byte-matching test. (2) JWT authentication working with Bearer token fallback for secure cookies over HTTP. (3) All core features (transactions, inventory, analytics, reports, documents, daily entry, reminders, month/year-end) functioning correctly. (4) No Emergent integrations tested as requested. (5) Deployment refactor has NOT broken any existing features."
+  - agent: "testing"
+    message: "Login fix verified end-to-end. User reported login failure with admin@urbandotted.com.au credentials. Root cause was missing /app/frontend/.env file (REACT_APP_BACKEND_URL was undefined). After .env creation with correct backend URL, tested complete login flow: (1) Login page loads correctly, (2) Form submission successful with 200 OK from /api/auth/login, (3) User redirected to /dashboard, (4) Dashboard loads with all KPI data, (5) Authenticated API calls working (dashboard, reminders), (6) No console or network errors. Login flow is now fully functional."
 
 user_problem_statement: "Prepare backend for Render deployment. Remove Emergent-only Python deps (emergentintegrations, Emergent-hosted litellm), replace Emergent object storage with a pluggable adapter (local/S3), clean requirements for Python 3.12, keep all existing features working."
 
