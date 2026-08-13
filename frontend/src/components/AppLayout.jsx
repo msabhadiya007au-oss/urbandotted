@@ -4,7 +4,7 @@ import {
   LayoutDashboard, TrendingUp, RotateCcw, Receipt, Megaphone, Boxes, Calculator,
   Wrench, Building2, Percent, Waves, ListOrdered, FolderOpen, FileBarChart2,
   CalendarCheck2, FileOutput, BellRing, Settings as SettingsIcon, Plus, Search,
-  LogOut, Menu, X, Upload,
+  LogOut, Menu, X, Upload, CalendarDays,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { api, fyLabel } from "@/lib/api";
@@ -21,6 +21,7 @@ import QuickAdd from "@/components/QuickAdd";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/daily", label: "Daily Entry", icon: CalendarDays },
   { to: "/sales", label: "Sales", icon: TrendingUp },
   { to: "/refunds", label: "Refunds", icon: RotateCcw },
   { to: "/expenses", label: "Expenses", icon: Receipt },

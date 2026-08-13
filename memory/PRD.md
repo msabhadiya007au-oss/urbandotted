@@ -52,8 +52,7 @@ phase-labelled future integrations.
 - Soft-delete/archive for all financial records; audit trail on financial mutations.
 - Manual entry and CSV import must always remain available.
 
-## Implemented (13 Aug 2026)
-**Phase 1** — MongoDB schema + indexes; dual auth (bcrypt JWT access/refresh httpOnly cookies +
+## Implemented (13 Aug 2026)**Phase 1** — MongoDB schema + indexes; dual auth (bcrypt JWT access/refresh httpOnly cookies +
 Emergent Google session exchange), brute-force lockout, password reset; business settings;
 default category tree (17 categories / 31 subcategories) + 7 payment accounts seeded per new
 business; transaction CRUD (expense/sale/refund/other income) with validation and duplicate
@@ -90,6 +89,43 @@ TikTok/Snapchat Ads, bank feeds, PayPal, Stripe, email reminders, JSON restore "
 - Testing agent iteration 1: 0 critical, 0 UI bugs. Both reported minor items fixed (gst_rate now
   accepts percentage or fraction and rejects absurd values; login toast moved so it cannot overlay
   the FY selector). Additionally found and fixed reminder duplication after a demo reload.
+
+## Daily Entry (added 13 Aug 2026 — additive, nothing removed)
+Manual daily bookkeeping workflow. A whole trading day is entered from one screen in ~1–3 minutes.
+- **Sidebar**: "Daily Entry" sits second, directly under Dashboard (`/daily`).
+- **Reusable template** (`daily_fields`): ~20 default fields auto-seeded per business across sections
+  Sales / Advertising / Courier / Product-COGS / Production / Packaging / Other / Custom, each with its
+  own subtotal. Fields **persist** every day; **amounts never carry over**.
+- **Customise Daily Entry**: add/rename/reorder/archive/show-hide, unlimited custom fields, field types
+  (currency, number, quantity, unit cost, calculated qty × unit cost, percentage, text, yes/no),
+  per-field GST treatment, expense category/subcategory, required/optional/recurring/not-expected,
+  default unit cost and SKU.
+- **Default unit cost with history freeze**: `daily_unit_cost_cents` is frozen on each transaction, so
+  changing a default tomorrow never rewrites yesterday. New days prefill the current default.
+- **Blank ≠ $0**: a blank field means "not yet reviewed"; a row's "No spend" toggle records a
+  confirmed $0. A day cannot silently show Complete while required fields are blank — it lists MISSING.
+- **Live profit engine**: sticky summary recalculates on every keystroke (Sales − Refunds = Net Sales,
+  less COGS/Ads/Courier/Production/Packaging/Other = Estimated Profit, plus Margin %).
+- **Statuses**: Not started / In progress / Complete / No business–closed. Save Draft + Mark Day Complete.
+- **History & roll-ups**: daily profit history table (click any date to reopen) and Today / This week /
+  This month / FY panels.
+- **One source of truth**: every value becomes a normal `transactions` record (`source="daily_entry"`,
+  tag `daily-entry`, plus `daily_entry_id` + `daily_field_id`). Upsert on that pair makes re-saving
+  idempotent, and blanking a field deletes its record — so Dashboard, Advertising, COGS, GST, Cash Flow,
+  Transactions, Reports, Month-End and Accountant Export all read the same records and nothing is ever
+  double counted. Receipts and notes attach per field into the existing Documents vault.
+- **Still manual by design**: no Shopify/Meta/Google/Snapchat/bank-feed syncing was added; the
+  Integrations page keeps its "Coming in Phase 4/5" labels.
+
+## Fixes (13 Aug 2026)
+- `gst_rate` now accepts a percentage or a decimal fraction and rejects absurd values.
+- Post-login toast moved to bottom-right (2.5s) so it cannot overlay the FY selector.
+- Reminder duplication after a demo reload fixed (orphaned reminders cleared; re-scan idempotent).
+- **`/reports/pnl` white-screen crash fixed**: `routes_analytics.py` declared `/api/reports/pnl` and,
+  being registered first, shadowed the generic `/api/reports/{key}` builder — it returned a payload with
+  no `rows`/`columns`, so `d.rows.length` threw. The structured endpoint moved to `/api/pnl` and
+  `ReportView` now guards against an unexpected shape. A regression test asserts all 16 report keys
+  return `columns[]` + `rows[]`.
 
 ## Prioritised Backlog
 **P0 (next)**

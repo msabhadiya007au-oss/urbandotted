@@ -196,3 +196,9 @@ async def ensure_indexes():
     await db.assets.create_index([("business_id", 1), ("date", -1)])
     await db.suppliers.create_index([("business_id", 1), ("name", 1)])
     await db.reminders.create_index([("business_id", 1), ("month_key", 1)])
+    # Daily Entry: backs the upsert that guarantees one transaction per field per day
+    await db.transactions.create_index(
+        [("business_id", 1), ("daily_entry_id", 1), ("daily_field_id", 1)], sparse=True)
+    await db.daily_fields.create_index([("business_id", 1), ("sort", 1)])
+    await db.daily_entries.create_index([("business_id", 1), ("entry_date", -1)])
+    await db.daily_entries.create_index([("business_id", 1), ("fy", 1), ("month_key", 1)])

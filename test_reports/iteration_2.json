@@ -1,0 +1,41 @@
+{
+  "summary": "Second iteration — additive Daily Entry feature on top of the existing Urban Dotted expense book. Re-ran the full previous regression suite (72 tests: /app/tests/test_calculations.py + /app/backend/tests/test_api_comprehensive.py) — 100% pass, confirming no regression. Authored a new /app/backend/tests/test_daily_entry.py with 16 targeted cases covering: template auto-seed (>=18 default fields incl. Mobile Covers Used calc_qty_unit@$1.00), the user's exact worked example (Net Sales 700, Ads 90, Courier 50, COGS 20, Production 7, Estimated Profit 533, Margin 76.14%), calc row amount 20 = qty 20 x $1.00, Facebook Ads $70 GST-free txn appearing in /api/transactions tagged daily-entry, Google Ads $20 producing GST > 0, blank-vs-zero (Snapchat no_spend=True saves an explicit $0 while TikTok blank stays is_blank=true amount=None), refuse-to-mark-complete when required fields missing (HTTP 400 with 'missing…'), template persistence next day with amounts blank + status not_started + totals 0, default unit cost history freeze (change default $1.00 -> $3.00 leaves saved day at $1.00/$10.00; new day prefills $3.00), custom field create + archive round-trip, /api/daily/history + /api/daily/periods surface today/week/month/fy. Idempotency: saving the same day twice does NOT create a duplicate txn — transactions count for the date is unchanged and the FB row is UPDATED from $70 to $90 on the second save; blanking the FB field afterwards deletes the underlying transaction, so no orphan. Frontend (Playwright, desktop 1920 + mobile 390): login flow works; sidebar shows Daily Entry as the second item under Dashboard (CalendarDays icon), navigates to /daily; the page defaults to yesterday=2026-08-12 and shows the 'Yesterday (12/08/2026) is waiting to be completed' banner. All documented testids present: daily-entry-page, daily-date-nav, prev/yesterday/today/next-day buttons, daily-date-input, daily-status-pill (NOT STARTED pill visible), live-summary, save-draft-btn, mark-complete-btn, customise-daily-btn, daily-history, daily-periods, and every daily-section-<sales/advertising/courier/product_cogs/production/packaging/other>. 19 currency value inputs rendered. LIVE PROFIT: typing 700 into the Total Sales input immediately propagated into the sticky Live Daily Summary with no save/no refresh. Mobile 390px: sidebar correctly collapses behind menu toggle, form rows remain usable, live summary stacks under the inputs. All 88 automated tests pass (72 pre-existing + 16 new).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/daily/entry", "issue": "When freezing the default unit cost after a change (test: default 1.00 -> 3.00), the response for the ORIGINAL saved day correctly reports unit_cost=1.0 and amount=20 (frozen from the saved transaction). Confirmed working, no bug — noting explicitly since this is a headline requirement."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Post-login toast", "issues": ["'Welcome back' sonner toast still overlays the FY selector in the top-right for ~5s (carried over from iteration 1 — not re-tested for fix)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_daily_entry.py",
+    "/app/backend/tests/test_api_comprehensive.py",
+    "/app/tests/test_calculations.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Idempotency guarantee in routes_daily._write_transaction is enforced by a lookup on (business_id, daily_entry_id, daily_field_id) followed by an update-or-insert — verified in tests. Combined with the blank->delete_many branch in save_entry, there is no way to accumulate duplicate or orphan transactions from repeated saves.",
+    "daily_unit_cost_cents is persisted on the transaction itself and _build_entry reads it back for historical days, which is the correct pattern for 'change default tomorrow, do not touch history'. Consider adding a DB index on (business_id, daily_entry_id, daily_field_id) if daily_fields count grows — the upsert lookup will scan otherwise.",
+    "orders / orders_shipped roles are correctly excluded from creating transactions in _write_transaction; the orders counter is stored only in daily_entries.values which is where totals() reads it back from — clean separation.",
+    "GST treatment is copied per-field so Facebook (gst_free) and Google (gst_included) produce different splits on the same $ amount, satisfying the 'never assume 10%' requirement.",
+    "No new API integrations added; Integrations page still shows 'Coming in Phase 4/5' labels (verified in iteration 1, no code changes since).",
+    "routes_daily.py is 630 lines — approaching the 700-line guideline. Consider splitting into template + entry + rollup modules if the file grows further."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_daily_entry.py (new — 16 tests covering Daily Entry API)"
+  ],
+  "success_rate": {"backend": "100% (88/88 = 72 previous + 16 new)", "frontend": "100% of the critical Daily Entry flows verified (nav item, default date, banner, all testids, live profit update, mobile responsive)"},
+  "test_credentials": "admin@urbandotted.com.au / UrbanDotted!2026",
+  "seed_data_creation": "Created a temporary daily entry in FY2024-25 (chosen deliberately to avoid clashing with the parallel test_dashboard_empty_fy assertion on FY2026-27) and one TEST_DHL Express custom field which is archived at end of the test module. All cleanup runs in the module-scoped fixture teardown; verified afterwards that daily/history for FY2026-27 is empty so main-agent regression stays green.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run the full suite with: `cd /app && python -m pytest tests/ backend/tests/ -q` — expect 88 passing. IMPORTANT: /app/backend/pytest.ini pins -n 2 --dist loadscope, and backend/tests/test_api_comprehensive.py::test_dashboard_empty_fy asserts FY2026-27 is empty; therefore any new daily-entry test MUST use a date outside FY2026-27 (test_daily_entry.py deliberately uses FY2024-25 dates starting 2025-06-25). If you add tests writing into FY2026-27 they will race the empty-fy check on the other xdist worker and cause a false failure. Response envelope for /api/transactions is {total, skip, limit, items[], totals} — items[] uses dollar fields amount_ex/gst/amount_inc (not amount_inc_cents). Daily Entry sidebar testid is auto-generated as nav-daily-entry from label 'Daily Entry'. All Daily Entry acceptance criteria have been demonstrated at the API layer; the frontend live-profit useMemo is confirmed working in the browser. The 'Welcome back' post-login toast overlay from iteration 1 was NOT retested for fix and is still present.",
+  "rca of the issue": "No blocking issues. The one nuance worth flagging is not a bug: routes_daily.save_entry persists the values BEFORE running the completeness check, so if a user hits 'Mark Complete' with required blanks the server returns 400 but the draft is retained (status forced back to in_progress). That matches the spec ('blank must NOT be treated as $0 — the day cannot silently show Complete — instead show MISSING: <fields>')."
+}

@@ -15,6 +15,7 @@ import { Suppliers, SupplierDetail, GstCenter, CashFlow } from "@/pages/Supplier
 import { Reports, ReportView, AccountantExport, Documents, Reminders } from "@/pages/ReportsExport";
 import { MonthEnd, SearchResults, ImportCsv } from "@/pages/MonthEndSearch";
 import Settings from "@/pages/Settings";
+import DailyEntry from "@/pages/DailyEntry";
 
 function Protected({ children }) {
   const { user } = useApp();
@@ -37,6 +38,8 @@ function Router() {
     <Routes>
       <Route path="/" element={<Entry />} />
       <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/daily" element={<Protected><DailyEntry /></Protected>} />
+      <Route path="/daily-entry" element={<Navigate to="/daily" replace />} />
       <Route path="/sales" element={<Protected><Sales /></Protected>} />
       <Route path="/refunds" element={<Protected><Refunds /></Protected>} />
       <Route path="/expenses" element={<Protected><Expenses /></Protected>} />

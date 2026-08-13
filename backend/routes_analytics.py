@@ -100,8 +100,10 @@ async def build_pnl(business_id: str, fy: str):
             ]}
 
 
-@router.get("/reports/pnl")
+@router.get("/pnl")
 async def pnl(fy: Optional[str] = None, business_id: str = Depends(get_business_id)):
+    """Structured P&L (months + totals). The spreadsheet-style version used by the
+    Reports screen and exports lives at /api/reports/pnl in routes_reports.py."""
     return await build_pnl(business_id, fy or current_fy())
 
 

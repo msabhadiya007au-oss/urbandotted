@@ -70,7 +70,17 @@ export function ReportView() {
     api.get(`/reports/${reportKey}?fy=${fy}`).then(({ data }) => setD(data)).catch(() => setD(false));
   }, [reportKey, fy]);
   if (!d) return <Loading label="Building report" />;
-  if (d === false) return <Empty title="Report not found" />;
+  if (d === false || !Array.isArray(d.rows) || !Array.isArray(d.columns)) {
+    return (
+      <div data-testid="report-view-page">
+        <Link to="/reports" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3" data-testid="back-to-reports">
+          <ArrowLeft size={12} /> All reports
+        </Link>
+        <Empty title="This report could not be loaded"
+          hint="The report returned an unexpected format. Pick another report, or try a different financial year." />
+      </div>
+    );
+  }
 
   const isNum = (v) => typeof v === "number";
 

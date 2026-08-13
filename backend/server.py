@@ -18,6 +18,7 @@ import routes_inventory
 import routes_analytics
 import routes_ops
 import routes_reports
+import routes_daily
 from storage import init_storage
 
 logging.basicConfig(level=logging.INFO,
@@ -61,6 +62,7 @@ app.include_router(routes_inventory.router)
 app.include_router(routes_analytics.router)
 app.include_router(routes_ops.router)
 app.include_router(routes_reports.router)
+app.include_router(routes_daily.router)
 
 
 @app.get("/api/")

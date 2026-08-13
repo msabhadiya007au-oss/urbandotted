@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 3 - Verified bug fix for /reports/pnl React white-screen crash (route shadowing). Added regression test suite (19 tests) covering shape of all 16 report endpoints. Full backend suite 107/107 passing. Frontend verified in real browser: no pageerror/console errors on /reports/pnl or any of the 16 reports, FY totals match spec exactly, dashboard KPI paths (kpi-gross-profit, view-pnl-btn) navigate to working P&L, and FY2026-27 empty state renders cleanly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_reports_shape.py",
+    "/app/backend/tests/test_api_comprehensive.py",
+    "/app/backend/tests/test_daily_entry.py",
+    "/app/tests/test_calculations.py",
+    "/app/test_reports/pytest/iteration_3.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Route registration order matters: routes_analytics is registered before routes_reports in server.py. Recommend a static assertion or consolidating report-path prefixes to prevent similar future shadowing. Alternatively, add a linter-style startup check that logs duplicate FastAPI routes.",
+    "The frontend ReportView defensive guard is good; consider extracting it into a generic <SafeTable/> component and adding a unit test to lock in the empty-state behaviour."
+  ],
+  "updated_files": ["/app/backend/tests/test_reports_shape.py"],
+  "success_rate": {"backend": "100% (107/107)", "frontend": "100%"},
+  "test_credentials": "admin@urbandotted.com.au / UrbanDotted!2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. No writes to FY2026-27 (preserves test_dashboard_empty_fy invariant).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The route-shadowing bug is fixed. Backend structured P&L is now at GET /api/pnl; the report-builder P&L at GET /api/reports/pnl returns {columns, rows, title, notes, fy, disclaimer}. Regression tests in test_reports_shape.py assert every one of the 16 keys returns columns[] and rows[]. Server clock is Aug 2026 so default FY on load is FY2026-27 (intentionally empty); switch via fy-selector -> fy-option-FY2025-26 before asserting historical figures.",
+  "rca of the issue": "ROOT CAUSE: routes_analytics.py originally exposed @router.get('/reports/pnl') returning a structured {fy, months, totals} payload. Its router was registered before routes_reports.py in server.py, so FastAPI matched the analytics handler first and shadowed the generic @router.get('/reports/{key}') builder that returns {columns, rows}. Frontend's ReportView called d.rows.length -> TypeError on undefined. FIX: analytics endpoint moved to @router.get('/pnl') (now at /api/pnl), so /api/reports/pnl correctly resolves to the report builder. Frontend also added a defensive guard for missing rows/columns. VERIFIED: 19 new regression tests, 88 existing tests all pass; browser rendering clean with expected FY2025-26 totals (Gross Sales 97500.00, Discounts 5760.00, Refunds 3480.00, Net Sales 88260.00, COGS 20392.86, Gross Profit 67867.14, Op Expenses 29592.00, Op Profit 38275.14)."
+}
