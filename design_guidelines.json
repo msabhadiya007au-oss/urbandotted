@@ -1,0 +1,129 @@
+{
+  "theme": "light",
+  "typography": {
+    "font_strategy": "The Old Money Tech (Classic Serif + Clean Sans + Technical Mono)",
+    "headings": {
+      "family": "Cormorant Garamond",
+      "weights": ["400", "600"],
+      "classes": "font-serif tracking-tight text-slate-900"
+    },
+    "body": {
+      "family": "Manrope",
+      "weights": ["400", "500", "600"],
+      "classes": "font-sans leading-relaxed text-slate-700"
+    },
+    "data_numbers": {
+      "family": "JetBrains Mono",
+      "weights": ["400", "500"],
+      "classes": "font-mono tracking-tight"
+    },
+    "rules": [
+      "NEVER use Inter, Roboto, or generic fonts for headings.",
+      "H1 maximum size is text-5xl.",
+      "Use JetBrains Mono for all financial values, percentages, and dates.",
+      "Overlines must be Uppercase + Tiny + Wide Spacing (tracking-[0.2em])."
+    ]
+  },
+  "colors": {
+    "archetype": "ORGANIC & EARTHY / OLD MONEY TECH",
+    "background": {
+      "page": "#FDFCF8",
+      "surface": "#FFFFFF",
+      "overlay": "rgba(253, 252, 248, 0.8)"
+    },
+    "border": {
+      "default": "#E5E2DC",
+      "active": "#0F291E"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#64748B",
+      "muted": "#94A3B8"
+    },
+    "accent": {
+      "primary": "#0F291E",
+      "positive": "#166534",
+      "negative": "#9F1239",
+      "warning": "#B45309",
+      "highlight": "#FCE7F3"
+    },
+    "rules": [
+      "No full-screen gradients. Flat colors only.",
+      "Never use pure black or grey without a tint. All greys must lean slightly warm.",
+      "Only use Primary Accent (#0F291E) for CTAs and critical states.",
+      "Profit/Gain uses Deep Emerald, Loss/Expense uses Deep Rose/Terra Cotta."
+    ]
+  },
+  "layouts": {
+    "strategy": "High Density Grid (Mode B) + Grid Borders (The Technical Look)",
+    "spacing": "Dense internally (p-4 to p-6 for cards), but generous margins between sections (gap-8).",
+    "sidebar": "Left sidebar, fixed width (240px or 280px). No hamburger on desktop.",
+    "dashboard_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4.",
+    "kpi_cards": "Single row KPI cards. Use Grid Borders (border-collapse style layout).",
+    "data_tables": "Compact, dense rows. Numbers must be right-aligned and mono-spaced. Text left-aligned."
+  },
+  "surfaces": {
+    "style": "Grid Borders & Flat Solid Surfaces",
+    "cards": "Flat background (bg-white), 1px subtle border (border-border), no shadow. Rounded-sm (2px or 4px max).",
+    "hover_state": "Slight lift (-translate-y-px) and border color darkens. No massive shadows.",
+    "glassmorphism": "Not recommended for financial apps as it reduces readability. Use solid backgrounds for modals/dropdowns.",
+    "rules": [
+      "Never apply transparent background for dropdowns or modals.",
+      "Maintain crisp, technical edges to feel like a high-end ledger."
+    ]
+  },
+  "motion": {
+    "strategy": "Minimalist - Functional feedback only",
+    "rules": [
+      "Use micro-interactions for hover/active states.",
+      "Do NOT use 'transition: all'. Target specific properties (e.g., transition-colors, transition-transform).",
+      "No bouncy/springy animations. Use ease-out for quick, snappy responses.",
+      "Respect prefers-reduced-motion."
+    ]
+  },
+  "components": {
+    "strategy": "Shadcn UI + Technical Styling",
+    "required_libraries": [
+      "lucide-react",
+      "sonner",
+      "recharts"
+    ],
+    "customizations": {
+      "cards": "Override Shadcn Card to be flat with 1px border and sharp corners (rounded-sm).",
+      "tables": "Dense rows. Right-align numeric columns.",
+      "buttons": "Primary: bg-[#0F291E] text-white hover:bg-slate-800. Sharp corners.",
+      "charts": "Recharts. Use subtle strokes. No gradients in charts, use solid or patterned fills. Colors: Emerald for Income, Rose for Expense."
+    },
+    "patterns": {
+      "accountant_export": "Step-based wizard flow. 1: Scope, 2: Format, 3: Review. Use progress indicator.",
+      "missing_expense_reminders": "Contextual alerts below KPI row, using warning accents.",
+      "quick_add": "Persistent sticky header button in primary brand color for '+ Add'."
+    }
+  },
+  "icons_and_assets": {
+    "library": "lucide-react",
+    "usage": "Use sparingly. Mono-line icons. Size 16px to 20px max for UI elements.",
+    "images": []
+  },
+  "accessibility": {
+    "rules": [
+      "Text contrast must meet APCA / WCAG AA standards.",
+      "Include data-testid on all interactive and key informational elements (e.g., data-testid='add-expense-btn').",
+      "Focus states must have 2px offset ring.",
+      "Do not rely solely on red/green for financial metrics; use explicit (+)/(-) signs or arrows."
+    ]
+  },
+  "instructions_to_main_agent": {
+    "universal_guidelines": [
+      "Build 'urbandotted expense book' as a premium, light-theme Australian SaaS application.",
+      "Avoid 'AI slop' by strictly following the typographic hierarchy and font pairings (Cormorant Garamond + Manrope + JetBrains Mono).",
+      "DO NOT use generic centered layouts or simplistic gradients.",
+      "All financial values must use JetBrains Mono and align correctly.",
+      "Use sonner for all toast notifications.",
+      "Implement the 'Month-End' and 'Accountant Export' flows as detailed step-by-step wizards.",
+      "Do not use transparent backgrounds on elements that overlap content (e.g., dropdowns, sticky headers).",
+      "Ensure all date formats are Australian (DD/MM/YYYY) and currency is AUD ($).",
+      "Apply the 'data-testid' attribute to all interactive elements for robust testing."
+    ]
+  }
+}

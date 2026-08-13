@@ -1,0 +1,45 @@
+{
+  "summary": "First testing iteration on Urban Dotted Expense Book. Backend: created /app/backend/tests/test_api_comprehensive.py with 47 pytest cases covering auth, tenant enforcement, dashboard KPIs for FY2025-26 and empty FY2026-27, transactions CRUD + GST split (gst_included / gst_free), categories, inventory purchases with landed cost, COGS, GST, cashflow, advertising, refunds analytics, sales summary, P&L, reports list, CSV/PDF report downloads, accountant ZIP export, transaction CSV export, documents (upload/download PDF + reject .exe), reminders scan, month-end, year-end, audit-logs, integrations (Phase labels), backup, recurring, import fields, logout. All 47 pass. Existing /app/tests/test_calculations.py (25 unit tests) still passes. Frontend: verified login (email/password + Google button visible), FY selector switches dashboard to FY2025-26 with exact expected demo values (Gross Sales $97,500, Net Sales $88,260, Refunds $3,480, COGS $20,393, Gross Profit $67,867, Operating Expenses $29,592, Operating Profit $38,275, GST Collected $8,864, GST Paid $1,574), FY2026-27 empty shows $0 (except leftover test data that has now been cleaned up), 12 KPI cards with correct testids, drill-down from Operating Expenses KPI navigates to /expenses, Meta / Facebook Ads category detail has cat-total ($10,165), cat-average ($1,452), cat-monthly-table with per-month change %, cat-transactions list; Reports page shows 16 report cards; Settings > Demo pill 'Demo data present', load/purge buttons present; Settings > Integrations shows Phase 4 (Shopify) and Phase 5 labels; GST page shows disclaimer text; COGS page has cogs-total/methodology/lines testids; Month-End shows 12 tiles; Accountant Export wizard step-1 with FY selector and year-end readiness (50% checks resolved shown); Reminders scan-btn present, sidebar badge shows 182 open reminders; QuickAdd > Add Expense form renders qa-amount/qa-category/qa-gst/qa-submit/qa-cancel; Transactions page renders all documented filter testids and Export CSV button; Global search 'Facebook' returns transaction results; Mobile 390px collapses sidebar behind menu-toggle and KPI cards stack vertically. Sidebar 'Missing / To Review' correctly lists 'Electricity — September 2025 entry missing'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GST rate semantics", "issue": "Backend expects gst_rate as a decimal fraction string (e.g. '0.10' meaning 10%), NOT as a percentage. Passing gst_rate='10' is silently interpreted as 1000% and inverts the ex/GST split (e.g. $110 inc becomes ex=$10, gst=$100). No validation, no error. Recommend either (a) accept both formats and normalise if value > 1, or (b) add validator rejecting rate > 1 with a clear error, and document the fraction convention in API. Frontend does not currently expose a rate input for standard treatments so end users are unlikely to hit this, but any integrator or CSV importer using gst_rate can trip on it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Post-login dashboard", "issues": ["The 'Welcome back' sonner toast overlays the FY selector in the top-right corner for ~5 seconds and can intercept clicks on the FY selector immediately after login (verified via Playwright). Consider positioning the toast lower or reducing its duration to ~2s."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api_comprehensive.py",
+    "/app/tests/test_calculations.py",
+    "/app/test_reports/pytest/backend_results.xml"
+  ],
+  "action_items": [
+    "Consider validating or normalising gst_rate input (accept percentage OR fraction, or reject rate > 1 with a helpful error). Optional; low impact because the frontend does not currently expose gst_rate for non-custom treatments.",
+    "Reduce duration or reposition 'Welcome back' post-login toast so it does not overlay the FY selector."
+  ],
+  "critical_code_review_comments": [
+    "compute_gst() correctly uses Decimal + ROUND_HALF_UP and stores money as integer cents throughout — no float drift observed.",
+    "All CRUD transaction endpoints use soft-delete (is_deleted flag) and analytics/dashboard correctly exclude deleted rows.",
+    "Multi-tenancy enforced: X-Business-Id for a foreign business returns 403 as expected. Unauthenticated protected endpoints correctly return 401.",
+    "seed_default_setup runs for every new business so a fresh registration starts EMPTY but with default category tree — confirmed via test.",
+    "Report generation (CSV, PDF via reportlab, accountant ZIP with PK header) all return valid content.",
+    "Frontend uses process.env.REACT_APP_BACKEND_URL, no hardcoded URLs observed.",
+    "All KPI cards, filters, and quick-add fields carry data-testid attributes as documented."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api_comprehensive.py (new)",
+    "/app/backend/tests/__init__.py (new, empty)"
+  ],
+  "success_rate": {"backend": "100% (47/47 API tests + 25/25 calc tests)", "frontend": "~98% (all critical flows verified, only minor toast overlay UX issue)"},
+  "test_credentials": "admin@urbandotted.com.au / UrbanDotted!2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Demo data (FY2025-26) was already loaded and status confirmed. Three TEST_-prefixed transactions were created during testing and cleaned up at end. No other seed data added.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test suite lives at /app/backend/tests/test_api_comprehensive.py — use it as regression baseline. For frontend testing: the FY selector portal option testids are 'fy-option-FY2025-26' etc, but the Radix portal renders detached from the trigger; simplest reliable way to switch FY in Playwright is `await page.evaluate(\"localStorage.setItem('ud_fy', 'FY2025-26')\")` followed by `await page.reload()` — this bypasses the toast overlay problem. Server clock is Aug 2026, so default FY is FY2026-27 which is legitimately empty. Demo data lives ONLY in FY2025-26. Object storage (EMERGENT_LLM_KEY) was verified working — PDF upload+download round-trip succeeded. Emergent Google Auth session-cookie flow was NOT injected/tested manually — only verified that the 'Continue with Google' button renders on the login page; if the main agent needs a full session-token injection test, follow /app/auth_testing.md. GST rate string quirk documented in minor issues.",
+  "rca of the issue": "No blocking issues. The only functional oddity found is the gst_rate string interpretation as fraction not percent (documented above). Reproduction: POST /api/transactions with body {txn_type:'expense', ..., amount:110, gst_treatment:'gst_included', gst_rate:'10'}; observed amount_ex=10, gst=100 (swapped). Root cause: core.py compute_gst() line 133 does `r = Decimal(str(rate))` without normalising for the '0.10-vs-10' distinction. Mitigation: either omit gst_rate (default_rate='0.10' works correctly and yields ex=100, gst=10) or supply '0.10'."
+}
