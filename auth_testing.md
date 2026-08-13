@@ -19,7 +19,7 @@ Verify: bcrypt hash starts `$2b$`, unique index on `users.email`, index on `logi
 
 ### API
 ```
-API=https://expense-hub-au.preview.emergentagent.com
+API=https://deploy-fix-145.preview.emergentagent.com
 curl -s -c /tmp/c.txt -X POST $API/api/auth/login -H "Content-Type: application/json" \
   -d '{"email":"admin@urbandotted.com.au","password":"UrbanDotted!2026"}'
 curl -s -b /tmp/c.txt $API/api/auth/me

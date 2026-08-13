@@ -101,3 +101,420 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Run deployment-readiness smoke test for Urban Dotted Expense Book backend after deployment refactor (removing emergentintegrations, switching to pluggable storage adapter)"
+
+backend:
+  - task: "Root health endpoint"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/ returns 200 with correct app name, status ok, and current_fy"
+  
+  - task: "JWT cookie authentication"
+    implemented: true
+    working: true
+    file: "backend/auth.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/auth/login successful. Returns user data with business_ids. JWT cookies set correctly. Bearer token auth working as fallback for secure cookies over HTTP."
+  
+  - task: "Get current user endpoint"
+    implemented: true
+    working: true
+    file: "backend/auth.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/auth/me returns authenticated user data correctly"
+  
+  - task: "Business setup endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_setup.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/business returns business configuration correctly"
+  
+  - task: "Transactions list endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_txn.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/transactions returns items array and total count"
+  
+  - task: "Inventory purchases endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_inventory.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/inventory/purchases returns items and totals correctly"
+  
+  - task: "P&L analytics endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_analytics.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/pnl returns FY data with months and totals for current FY"
+  
+  - task: "Reports P&L endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_reports.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/reports/pnl returns structured report with title, columns, and rows"
+  
+  - task: "Documents list endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_ops.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/documents returns items array correctly"
+  
+  - task: "LOCAL storage backend - upload/download"
+    implemented: true
+    working: true
+    file: "backend/storage.py, backend/routes_ops.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "CRITICAL: POST /api/documents/upload and GET /api/documents/{id}/download both working. Uploaded test file, downloaded it, and verified bytes match exactly. LOCAL storage backend validated successfully. Storage path: /app/data/receipts"
+  
+  - task: "Reminders endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_ops.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/reminders returns items and counts correctly"
+  
+  - task: "Daily entry fields endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_daily.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/daily/fields returns fields and sections correctly"
+  
+  - task: "Daily entry endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_daily.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/daily/entry returns entry_date, fields, and totals"
+  
+  - task: "Reports list endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_reports.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/reports returns available reports list"
+  
+  - task: "Export transactions CSV"
+    implemented: true
+    working: true
+    file: "backend/routes_reports.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/export/transactions returns CSV file with correct content-type"
+  
+  - task: "Dashboard endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_analytics.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/dashboard returns KPIs and months data"
+  
+  - task: "GST center endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_analytics.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/gst returns totals and months GST data"
+  
+  - task: "Cashflow endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_analytics.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/cashflow returns months and totals correctly"
+  
+  - task: "COGS report endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_inventory.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/cogs returns months and total_cogs data"
+  
+  - task: "Categories endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_setup.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/categories returns tree and flat category structures"
+  
+  - task: "Suppliers endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_setup.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/suppliers returns suppliers list"
+  
+  - task: "Payment accounts endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_setup.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/accounts returns payment accounts list"
+  
+  - task: "Assets endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_inventory.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/assets returns items and totals"
+  
+  - task: "Recurring templates endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_ops.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/recurring returns recurring templates list"
+  
+  - task: "Month-end checklist endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_ops.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/month-end returns months and FY data"
+  
+  - task: "Year-end checklist endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_ops.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/year-end returns checks and ready_for_accountant status"
+  
+  - task: "Accountant export ZIP"
+    implemented: true
+    working: true
+    file: "backend/routes_reports.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/export/accountant returns ZIP file (6388 bytes) with reports and receipts. Content-type application/zip verified."
+
+frontend:
+  - task: "Frontend testing"
+    implemented: "NA"
+    working: "NA"
+    file: "NA"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Frontend testing not performed as per review request instructions"
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+  test_date: "2026-08-13"
+  test_type: "deployment_smoke_test"
+
+test_plan:
+  current_focus:
+    - "All backend endpoints tested"
+  stuck_tasks: []
+  test_all: true
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: "Deployment smoke test completed successfully. All 27 backend endpoints tested and passing. Key findings: (1) LOCAL storage backend working correctly - upload/download validated with byte-matching test. (2) JWT authentication working with Bearer token fallback for secure cookies over HTTP. (3) All core features (transactions, inventory, analytics, reports, documents, daily entry, reminders, month/year-end) functioning correctly. (4) No Emergent integrations tested as requested. (5) Deployment refactor has NOT broken any existing features."
+
+user_problem_statement: "Prepare backend for Render deployment. Remove Emergent-only Python deps (emergentintegrations, Emergent-hosted litellm), replace Emergent object storage with a pluggable adapter (local/S3), clean requirements for Python 3.12, keep all existing features working."
+
+backend:
+  - task: "Remove emergentintegrations & Emergent-hosted litellm from requirements"
+    implemented: true
+    working: true
+    file: "backend/requirements.txt"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Rewrote requirements.txt to a clean minimal set aligned with Python 3.12. Removed emergentintegrations, custom litellm wheel, google-genai, openai, stripe, pandas/numpy, and other unused packages."
+
+  - task: "Pluggable storage adapter (local/S3/emergent)"
+    implemented: true
+    working: true
+    file: "backend/storage.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Rewrote storage.py preserving the public API (init_storage/put_object/get_object). New backends: local (default, filesystem), s3 (boto3 for AWS/R2/MinIO/B2/DO), emergent (legacy). Selected via STORAGE_BACKEND env var. Path-traversal guard added."
+        - working: true
+          agent: "testing"
+          comment: "Upload + download flow verified end-to-end with LOCAL backend. Bytes match. 27/27 backend endpoints passed including accountant ZIP export with embedded receipts."
+
+  - task: "Render blueprint + Python 3.12 runtime + env sample"
+    implemented: true
+    working: true
+    file: "render.yaml, backend/runtime.txt, backend/.env.example"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Added render.yaml blueprint with disk mount at /var/data for local receipt storage, runtime.txt pinned to python-3.12.7, and .env.example documenting all env vars including S3 options."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Deployment refactor complete. 27/27 backend endpoints verified working after removal of Emergent-only deps and switch to pluggable storage adapter."

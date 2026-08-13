@@ -1,0 +1,53 @@
+# Render Blueprint for Urban Dotted Expense Book
+# https://render.com/docs/blueprint-spec
+#
+# Usage: connect this repository to Render as a Blueprint. Fill in the sync=false
+# secrets (JWT_SECRET, MONGO_URL, admin password, and — if using S3 — AWS keys)
+# in the Render dashboard after the first sync.
+
+services:
+  - type: web
+    name: urbandotted-backend
+    runtime: python
+    plan: starter
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: urbandotted
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@urbandotted.com.au
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "600"
+      - key: STORAGE_BACKEND
+        value: local
+      - key: STORAGE_DIR
+        value: /var/data/receipts
+      # For S3-compatible storage, set STORAGE_BACKEND=s3 and add:
+      # - key: S3_BUCKET
+      #   sync: false
+      # - key: S3_REGION
+      #   value: ap-southeast-2
+      # - key: S3_ENDPOINT_URL
+      #   sync: false
+      # - key: AWS_ACCESS_KEY_ID
+      #   sync: false
+      # - key: AWS_SECRET_ACCESS_KEY
+      #   sync: false
+    disk:
+      name: receipts
+      mountPath: /var/data
+      sizeGB: 1
