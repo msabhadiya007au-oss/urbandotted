@@ -682,3 +682,36 @@ frontend:
 agent_communication:
   - agent: "main"
     message: "Admin creds migrated + single-login lockdown shipped with a Settings toggle. Signups OFF by default. All 4 e2e scenarios passed."
+  - agent: "testing"
+
+user_problem_statement: "Verify that the frontend still runs correctly after adding react-is@^19.0.0 as an explicit dependency to fix a Render production build error (Module not found: Can't resolve 'react-is' in node_modules/recharts/es6/util). Focus on Recharts-powered UI since Recharts internally imports react-is."
+
+frontend:
+  - task: "react-is dependency resolution for Recharts"
+    implemented: true
+    working: true
+    file: "frontend/package.json"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED: react-is@^19.0.0 added to package.json dependencies. Login page renders without errors. Dashboard loads with all 13 KPI cards. Found 20 Recharts SVG elements (svg.recharts-surface) rendering correctly on dashboard including BarChart, LineChart, PieChart components. ZERO console errors related to react-is, isValidElement, or module resolution. ZERO total console errors during test. Settings Access tab accessible and functional. The Render production build error is RESOLVED."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 3
+  run_ui: true
+  test_date: "2026-08-13"
+  test_type: "react-is_dependency_verification"
+
+test_plan:
+  current_focus:
+    - "react-is dependency fix verification complete"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+    message: "react-is@^19.0.0 dependency fix VERIFIED SUCCESSFULLY. Tested login page, dashboard with 13 KPI cards, and 20 Recharts SVG elements rendering correctly. ZERO react-is related console errors. ZERO module resolution errors. All Recharts components (BarChart, LineChart, PieChart, AreaChart) working perfectly. Settings Access tab accessible. The Render production build error 'Module not found: Can't resolve react-is in node_modules/recharts/es6/util' is now RESOLVED."
