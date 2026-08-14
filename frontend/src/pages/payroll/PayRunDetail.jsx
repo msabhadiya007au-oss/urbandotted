@@ -54,6 +54,7 @@ export default function PayRunDetail() {
           <Pill tone={STATUS_TONES[run.status]}>{run.status}</Pill>
           {!immutable && <Button size="sm" variant="outline" className="rounded-sm text-xs" onClick={reload} data-testid="pay-run-reload">Reload employees</Button>}
           {!immutable && <Button size="sm" className="rounded-sm bg-primary text-primary-foreground text-xs gap-1.5" onClick={finalise} data-testid="pay-run-finalise"><Lock size={12} /> Finalise</Button>}
+          {run.status === "finalised" && <Button asChild size="sm" variant="outline" className="rounded-sm text-xs"><Link to="/payroll/payslips" data-testid="pay-run-payslips">View payslips</Link></Button>}
           {run.status === "finalised" && <Button size="sm" variant="outline" className="rounded-sm text-xs text-negative gap-1.5" onClick={() => setVoidOpen(true)} data-testid="pay-run-void"><XCircle size={12} /> Void</Button>}
         </div>}
       />

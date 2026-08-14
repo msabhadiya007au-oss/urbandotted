@@ -235,3 +235,10 @@ async def ensure_indexes():
         [("business_id", 1), ("pay_run_ref", 1), ("employee_id", 1)], unique=True)
     await db.pay_run_lines.create_index(
         [("business_id", 1), ("pay_run_ref", 1), ("employee_id", 1)])
+    # Payslips (Phase 3)
+    await db.payslips.create_index(
+        [("business_id", 1), ("payslip_ref", 1)], unique=True)
+    await db.payslips.create_index(
+        [("business_id", 1), ("employee_id", 1), ("fy", 1)])
+    await db.payslips.create_index(
+        [("business_id", 1), ("pay_run_ref", 1)])

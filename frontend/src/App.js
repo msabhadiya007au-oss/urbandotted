@@ -21,6 +21,7 @@ import Employees from "@/pages/payroll/Employees";
 import EmployeeProfile from "@/pages/payroll/EmployeeProfile";
 import PayRuns from "@/pages/payroll/PayRuns";
 import PayRunDetail from "@/pages/payroll/PayRunDetail";
+import Payslips from "@/pages/payroll/Payslips";
 
 function Protected({ children }) {
   const { user } = useApp();
@@ -73,6 +74,7 @@ function Router() {
       <Route path="/payroll/employees/:employeeId" element={<Protected><EmployeeProfile /></Protected>} />
       <Route path="/payroll/pay-runs" element={<Protected><PayRuns /></Protected>} />
       <Route path="/payroll/pay-runs/:ref" element={<Protected><PayRunDetail /></Protected>} />
+      <Route path="/payroll/payslips" element={<Protected><Payslips /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

@@ -26,6 +26,8 @@ from pydantic import BaseModel, Field, field_validator
 from auth import get_current_user, get_business_id
 from core import db, new_id, now_iso, audit, fy_of, month_key_of, current_fy
 import payroll_calc as pc
+import payroll_pdf as pdfgen
+from storage import put_object, get_object, APP_NAME
 
 router = APIRouter(prefix="/api/payroll", tags=["payroll-runs"])
 
@@ -423,17 +425,208 @@ async def finalise(ref: str, business_id: str = Depends(get_business_id),
     totals = await _refresh_totals(business_id, ref)
     if totals["employee_count"] == 0:
         raise HTTPException(400, "Cannot finalise an empty pay run")
-    for k in ("gross_cents",):
-        if totals.get(k, 0) < 0:
-            raise HTTPException(400, "Cannot finalise a pay run with negative gross")
+    if totals.get("gross_cents", 0) < 0:
+        raise HTTPException(400, "Cannot finalise a pay run with negative gross")
+
+    # Build immutable payslip snapshots for every employee in the run
+    employer = await db.payroll_settings.find_one({"business_id": business_id}, {"_id": 0}) or {}
+    fy = run.get("fy") or fy_of(run["payment_date"])
+    emp_rows = await db.pay_run_employees.find(
+        {"business_id": business_id, "pay_run_ref": ref}, {"_id": 0}
+    ).to_list(1000)
+
+    payslip_refs = []
+    for row in emp_rows:
+        emp = await db.employees.find_one(
+            {"business_id": business_id, "employee_id": row["employee_id"]}, {"_id": 0}
+        ) or {}
+        sup = await db.employee_super.find_one(
+            {"business_id": business_id, "employee_id": row["employee_id"]}, {"_id": 0}
+        ) or {}
+        leaves = await db.employee_leave_balances.find(
+            {"business_id": business_id, "employee_id": row["employee_id"]}, {"_id": 0}
+        ).to_list(50)
+        lines = await db.pay_run_lines.find(
+            {"business_id": business_id, "pay_run_ref": ref, "employee_id": row["employee_id"]},
+            {"_id": 0},
+        ).to_list(500)
+
+        # YTD = sum of prior finalised, non-voided payslips for this employee in the same FY
+        prior = await db.payslips.find(
+            {"business_id": business_id, "employee_id": row["employee_id"],
+             "fy": fy, "status": {"$ne": "voided"}},
+            {"_id": 0},
+        ).to_list(1000)
+        ytd = {k: sum(int(p.get(k, 0) or 0) for p in prior) + int(row.get(k, 0) or 0)
+               for k in ("gross_cents", "taxable_cents", "pretax_ded_cents",
+                          "posttax_ded_cents", "payg_cents", "net_cents", "super_cents")}
+
+        ps_ref = await _next_payslip_ref(business_id)
+        snapshot = {
+            "payslip_id": new_id("ps"),
+            "payslip_ref": ps_ref,
+            "pay_run_ref": ref,
+            "business_id": business_id,
+            "employee_id": row["employee_id"],
+            "fy": fy,
+            "month_key": run.get("month_key"),
+            "period_start": run["period_start"],
+            "period_end": run["period_end"],
+            "payment_date": run["payment_date"],
+            "pay_frequency": run["pay_frequency"],
+            "standard_hours": row.get("standard_hours") or "",
+            "status": "finalised",
+            "employer": {
+                "legal_business_name": employer.get("legal_business_name", ""),
+                "trading_name": employer.get("trading_name", ""),
+                "abn": employer.get("abn", ""),
+                "business_address": employer.get("business_address", ""),
+            },
+            "employee": {
+                "employee_id": emp.get("employee_id"),
+                "first_name": emp.get("first_name", ""),
+                "last_name": emp.get("last_name", ""),
+                "address_line": ", ".join(x for x in [emp.get("address", ""), emp.get("suburb", ""),
+                                                       emp.get("state", ""), emp.get("postcode", "")] if x),
+            },
+            "earning_lines": lines,
+            "gross_cents": row.get("gross_cents", 0),
+            "pretax_ded_cents": row.get("pretax_ded_cents", 0),
+            "taxable_cents": row.get("taxable_cents", 0),
+            "payg_cents": row.get("payg_cents", 0),
+            "posttax_ded_cents": row.get("posttax_ded_cents", 0),
+            "net_cents": row.get("net_cents", 0),
+            "superable_cents": row.get("superable_cents", 0),
+            "super_cents": row.get("super_cents", 0),
+            "super": {"fund_name": sup.get("fund_name", ""), "sg_rate": row.get("sg_rate", "0")},
+            "leave_balances": leaves,
+            "ytd": ytd,
+            "employee_message": "",
+            "generated_at": now_iso(),
+            "generated_by": user.get("email"),
+        }
+        # Render deterministic PDF and store
+        pdf_bytes = pdfgen.build_payslip_pdf(snapshot)
+        path = f"{APP_NAME}/{business_id}/payslips/{ps_ref}.pdf"
+        try:
+            put_object(path, pdf_bytes, "application/pdf")
+        except Exception:
+            pass
+        snapshot["storage_path"] = path
+        snapshot["pdf_size"] = len(pdf_bytes)
+        await db.payslips.insert_one(snapshot)
+        payslip_refs.append(ps_ref)
+        await audit(business_id, user, "payslip", ps_ref, "generate")
 
     await db.pay_runs.update_one(
         {"business_id": business_id, "pay_run_ref": ref},
         {"$set": {"status": "finalised", "finalised_at": now_iso(),
-                   "finalised_by": user.get("email")}},
+                   "finalised_by": user.get("email"), "payslip_refs": payslip_refs}},
     )
     await audit(business_id, user, "pay_run", ref, "finalise", after=totals)
-    return {"ok": True, "status": "finalised", "totals": totals}
+    return {"ok": True, "status": "finalised", "totals": totals, "payslip_refs": payslip_refs}
+
+
+# ---------------------------------------------------------------------------
+# Payslip register / view / download / void
+# ---------------------------------------------------------------------------
+async def _next_payslip_ref(business_id: str) -> str:
+    from datetime import datetime
+    year = datetime.utcnow().year
+    prefix = f"UD-PS-{year}-"
+    last = await db.payslips.find_one(
+        {"business_id": business_id, "payslip_ref": {"$regex": f"^{prefix}"}},
+        sort=[("payslip_ref", -1)],
+    )
+    seq = 1
+    if last and last.get("payslip_ref"):
+        try:
+            seq = int(last["payslip_ref"].split("-")[-1]) + 1
+        except Exception:
+            seq = 1
+    return f"{prefix}{seq:06d}"
+
+
+@router.get("/payslips")
+async def list_payslips(fy: Optional[str] = None, employee_id: Optional[str] = None,
+                        status: Optional[str] = None,
+                        business_id: str = Depends(get_business_id)):
+    q = {"business_id": business_id}
+    if fy:
+        q["fy"] = fy
+    if employee_id:
+        q["employee_id"] = employee_id
+    if status:
+        q["status"] = status
+    items = await db.payslips.find(q, {"_id": 0, "earning_lines": 0}
+                                    ).sort("payment_date", -1).to_list(500)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/payslips/{payslip_ref}")
+async def get_payslip(payslip_ref: str, business_id: str = Depends(get_business_id)):
+    ps = await db.payslips.find_one(
+        {"business_id": business_id, "payslip_ref": payslip_ref}, {"_id": 0}
+    )
+    if not ps:
+        raise HTTPException(404, "Payslip not found")
+    return ps
+
+
+@router.get("/payslips/{payslip_ref}/download")
+async def download_payslip(payslip_ref: str, business_id: str = Depends(get_business_id),
+                            user: dict = Depends(get_current_user)):
+    from fastapi.responses import Response
+    ps = await db.payslips.find_one(
+        {"business_id": business_id, "payslip_ref": payslip_ref}, {"_id": 0}
+    )
+    if not ps:
+        raise HTTPException(404, "Payslip not found")
+    path = ps.get("storage_path")
+    try:
+        data, ct = get_object(path)
+    except Exception:
+        # Regenerate deterministic PDF from the immutable snapshot if the stored
+        # blob is missing. Snapshot values are frozen, so output is identical.
+        data = pdfgen.build_payslip_pdf(ps)
+        ct = "application/pdf"
+        try:
+            put_object(path, data, "application/pdf")
+        except Exception:
+            pass
+    await audit(business_id, user, "payslip", payslip_ref, "download")
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{payslip_ref}.pdf"'})
+
+
+class PayslipVoidIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/payslips/{payslip_ref}/void")
+async def void_payslip(payslip_ref: str, body: PayslipVoidIn,
+                        business_id: str = Depends(get_business_id),
+                        user: dict = Depends(get_current_user)):
+    ps = await db.payslips.find_one(
+        {"business_id": business_id, "payslip_ref": payslip_ref}, {"_id": 0}
+    )
+    if not ps:
+        raise HTTPException(404, "Payslip not found")
+    if ps.get("status") == "voided":
+        raise HTTPException(400, "Already voided")
+    await db.payslips.update_one(
+        {"business_id": business_id, "payslip_ref": payslip_ref},
+        {"$set": {"status": "voided", "voided_at": now_iso(),
+                   "voided_by": user.get("email"), "void_reason": body.reason}},
+    )
+    # Re-render VOIDED-stamped PDF alongside the original for the register view.
+    try:
+        stamped = pdfgen.build_payslip_pdf({**ps, "status": "voided", "void_reason": body.reason})
+        put_object(ps["storage_path"], stamped, "application/pdf")
+    except Exception:
+        pass
+    await audit(business_id, user, "payslip", payslip_ref, "void", after={"reason": body.reason})
+    return {"ok": True, "status": "voided"}
 
 
 class VoidIn(BaseModel):
