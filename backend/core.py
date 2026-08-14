@@ -226,3 +226,12 @@ async def ensure_indexes():
         [("business_id", 1), ("code", 1)], unique=True)
     await db.pay_leave_types.create_index(
         [("business_id", 1), ("code", 1)], unique=True)
+    # Pay runs (Phase 2)
+    await db.pay_runs.create_index(
+        [("business_id", 1), ("pay_run_ref", 1)], unique=True)
+    await db.pay_runs.create_index([("business_id", 1), ("status", 1), ("payment_date", -1)])
+    await db.pay_runs.create_index([("business_id", 1), ("fy", 1)])
+    await db.pay_run_employees.create_index(
+        [("business_id", 1), ("pay_run_ref", 1), ("employee_id", 1)], unique=True)
+    await db.pay_run_lines.create_index(
+        [("business_id", 1), ("pay_run_ref", 1), ("employee_id", 1)])

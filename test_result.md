@@ -1120,3 +1120,173 @@ test_plan:
 agent_communication:
   - agent: "testing"
     message: "PAYROLL PHASE 1 VERIFICATION COMPLETE. ALL 44 TESTS PASSED (0 failures, 2 warnings). Test scope: NEW payroll endpoints (A-J) + business-ID isolation (K) + regression smoke (L). Results by section: (A) Payroll status endpoint - PASS (correct structure: stp disabled, payg manual, super tracked, email disabled). (B) Employer profile CRUD - PASS (GET/PUT working, invalid pay_frequency rejected with 422). (C) FY dropdown fix - PASS (no future FYs, current FY first, 8 entries). (D) Employees CRUD - PASS (POST/GET/PUT/DELETE working, soft delete preserves historical data, search working). (E) Pay settings history - PASS (history sorted newest-first, effective_to set correctly on older rows). (F) Super profile - PASS (PUT/GET working). (G) Tax settings (owner-only) - PASS (GET/PUT working with owner role). (H) Bank details (owner-only, encrypted, masked) - PASS (encryption working, masked by default, reveal=true returns raw values). (I) Pay items CRUD - PASS (POST/GET working, duplicate code rejected with 400). (J) Leave types CRUD - PASS (POST/GET working). (K) Business-ID isolation - PASS (_id field removed from responses). (L) Regression smoke - PASS (12 existing endpoints tested, all returning 200, document upload/download bytes match, accountant export returns ZIP). WARNINGS: (1) Audit log verification for bank reveal action requires DB access (skipped), (2) Business_id field presence in DB requires DB access (skipped). ZERO critical issues. ZERO regressions. Payroll Phase 1 is PRODUCTION-READY."
+
+
+user_problem_statement: "PAYROLL PHASE 2 VERIFICATION — Pay Runs + Calculation Engine. Verify: (1) New pay-run endpoints, (2) Calc-engine correctness via API, (3) Zero regressions on ALL Phase 1 payroll endpoints + all existing modules. NOT testing frontend, NOT testing Phase 3-5 (PDF, accounting)."
+
+backend:
+  - task: "Pay run creation and listing"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/payroll/pay-runs creates pay run with ref starting 'UD-PR-YYYY-NNNNNN'. Duplicate detection working (400 for same period/frequency). GET /api/payroll/pay-runs returns list. GET with status=draft filter working. Invalid period (end < start) correctly rejected with 422. All CRUD operations verified."
+
+  - task: "Load employees into pay run"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/payroll/pay-runs/{ref}/load successfully loads active employees matching pay frequency. Returns included employee IDs and count. GET /api/payroll/pay-runs/{ref} returns full detail with employees array, each employee has default ORD line with computed totals. Load endpoint working correctly."
+
+  - task: "Calculation engine - hourly employees"
+    implemented: true
+    working: true
+    file: "backend/payroll_calc.py, backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Hourly employee calc verified: hours=76, rate_cents=3000, amount_cents=228000. Totals: gross=228000, taxable=228000, payg=0 (manual_payg_override=0), net=228000, super=27360 (228000*0.12), employer_cost=255360. All calculations match expected values exactly."
+
+  - task: "Calculation engine - salaried employees"
+    implemented: true
+    working: true
+    file: "backend/payroll_calc.py, backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Salaried employee calc verified: 70000/26 = $2692.31 -> rate_cents=269231. Totals: gross=269231, super=32308 (269231*0.12 rounded), net=269231, employer_cost=301539. All calculations match expected values exactly."
+
+  - task: "Edit employee lines - mixed earnings and deductions"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 1
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: false
+        agent: "testing"
+        comment: "PUT /api/payroll/pay-runs/{ref}/employees/{id} returned 500 Internal Server Error. Root cause: MongoDB _id field in response causing JSON serialization error."
+      - working: true
+        agent: "testing"
+        comment: "FIXED: Added _id removal before returning docs. PUT now works correctly with mixed lines (ORD hourly, SHIFT175 percent_of_base, OT150 percent_of_base, SS pretax deduction). Calc verified: ORD 20*3000=60000, SHIFT175 12*3000*1.75=63000, OT150 8*3000*1.50=36000, gross=159000, pretax_ded=10000, taxable=149000, payg=30000, net=119000, superable=159000, super=19080. All calculations correct. Changes persist correctly in GET."
+
+  - task: "Line validation"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Validation working: negative hours rejected with 422, negative rate rejected with 422, invalid kind rejected with 422. All validation rules enforced correctly."
+
+  - task: "Recalculate endpoint"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/payroll/pay-runs/{ref}/calculate returns aggregated totals (employee_count, gross_cents, taxable_cents, payg_cents, pretax_ded_cents, posttax_ded_cents, net_cents, super_cents, total_employer_cost_cents). Idempotent recalculation working correctly."
+
+  - task: "Finalise pay run"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/payroll/pay-runs/{ref}/finalise sets status=finalised. Subsequent edit attempts correctly rejected with 400 'cannot be edited'. Second finalise attempt correctly rejected with 400. GET still returns full snapshot after finalisation. Immutability enforced correctly."
+
+  - task: "Void pay run"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/payroll/pay-runs/{ref}/void with reason sets status=voided. Voided run appears in GET /api/payroll/pay-runs with status=voided (not deleted). Double void correctly rejected with 400. Duplicate guard ignores voided runs - can create new pay run for same period after voiding. Void functionality working correctly."
+
+  - task: "Empty pay run validation"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Finalise endpoint correctly rejects empty pay runs (employee_count=0) with 400 'Cannot finalise an empty pay run'. Validation working correctly."
+
+  - task: "Payroll dashboard"
+    implemented: true
+    working: true
+    file: "backend/routes_payroll_runs.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/payroll/dashboard returns correct structure: active_employees, drafts_count, recent_finalised (array), ytd (gross_cents, payg_cents, net_cents, super_cents, total_employer_cost_cents), payg_status (manual PAYG note). YTD totals include finalised runs but exclude voided runs. Dashboard working correctly."
+
+  - task: "Phase 1 + existing modules regression"
+    implemented: true
+    working: true
+    file: "backend/server.py, backend/routes_*.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "ALL regression tests PASSED (18 endpoints): GET /api/ (200), GET /api/auth/me (200), GET /api/auth/config (200), GET /api/meta (200, no future FYs), GET /api/dashboard (200), GET /api/transactions (200), GET /api/inventory/purchases (200), GET /api/documents (200), GET /api/reminders (200), GET /api/reports (200), GET /api/payroll/status (200), GET /api/payroll/employer (200), GET /api/payroll/employees (200), GET /api/payroll/pay-items (200), GET /api/payroll/leave-types (200), POST /api/documents/upload + GET download (200, bytes match), GET /api/payroll/employees/{id}/bank (masked by default, reveal=true works). ZERO regressions detected."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 7
+  run_ui: false
+  test_date: "2026-08-14"
+  test_type: "payroll_phase2_verification"
+
+test_plan:
+  current_focus:
+    - "All payroll Phase 2 tests complete"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: "PAYROLL PHASE 2 VERIFICATION COMPLETE. Test scope: Pay runs + calculation engine + Phase 1 regression. Results: (A) Pay run creation/listing - PASS (ref generation, duplicate detection, status filtering, validation). (B) Load employees - PASS (active employees loaded, default ORD lines created). (C) Calculation engine - PASS (hourly: 76hrs*$30=$2280, super=$273.60; salaried: $70k/26=$2692.31, super=$323.08; all calcs exact). (D) Edit employee - PASS after fix (mixed lines: hourly, percent_of_base, pretax deduction; all calcs correct). (E) Validation - PASS (negative hours/rates rejected, invalid kind rejected). (F) Recalculate - PASS (aggregated totals returned). (G) Finalise - PASS (immutability enforced, edits rejected, double finalise rejected). (H) Void - PASS (status=voided, not deleted, duplicate guard ignores voided). (I) Empty finalise - PASS (rejected with 400). (J) Dashboard - PASS (correct structure, YTD excludes voided). (K) Regression - PASS (18 endpoints, zero regressions). CRITICAL FIX APPLIED: routes_payroll_runs.py line 356 - removed MongoDB _id from response docs to fix JSON serialization error. ONE bug found and fixed. ZERO regressions. Payroll Phase 2 is PRODUCTION-READY."

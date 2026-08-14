@@ -4,7 +4,7 @@ import {
   LayoutDashboard, TrendingUp, RotateCcw, Receipt, Megaphone, Boxes, Calculator,
   Wrench, Building2, Percent, Waves, ListOrdered, FolderOpen, FileBarChart2,
   CalendarCheck2, FileOutput, BellRing, Settings as SettingsIcon, Plus, Search,
-  LogOut, Menu, X, Upload, CalendarDays, Users,
+  LogOut, Menu, X, Upload, CalendarDays, Users, ClipboardList,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { api, fyLabel } from "@/lib/api";
@@ -47,6 +47,7 @@ const NAV = [
 const PAYROLL_NAV = [
   { to: "/payroll", label: "Payroll Dashboard", icon: LayoutDashboard },
   { to: "/payroll/employees", label: "Employees", icon: Users },
+  { to: "/payroll/pay-runs", label: "Pay Runs", icon: ClipboardList },
 ];
 
 export default function AppLayout({ children }) {
@@ -110,6 +111,7 @@ export default function AppLayout({ children }) {
           {PAYROLL_NAV.map(({ to, label, icon: Icon }) => {
             const active = location.pathname === to
               || (to === "/payroll/employees" && location.pathname.startsWith("/payroll/employees"))
+              || (to === "/payroll/pay-runs" && location.pathname.startsWith("/payroll/pay-runs"))
               || (to === "/payroll" && location.pathname === "/payroll");
             return (
               <Link key={to} to={to} data-testid={`nav-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}

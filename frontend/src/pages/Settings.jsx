@@ -442,6 +442,39 @@ function AuditLog() {
   );
 }
 
+function Deductions() {
+  const [list, setList] = useState(null);
+  const [f, setF] = useState({ code: "", label: "", kind: "deduction", calc_type: "fixed", default_rate: "0", taxable: false, super_liable: false, is_active: true });
+  const load = () => api.get("/payroll/pay-items").then(({ data }) => setList((data.items || []).filter((i) => i.kind === "deduction"))).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  const add = async () => {
+    try { await api.post("/payroll/pay-items", { ...f, kind: "deduction" }); toast.success("Deduction added"); setF({ ...f, code: "", label: "" }); load(); }
+    catch (e) { toast.error(errText(e)); }
+  };
+  return (
+    <Section title={`Deduction library ${list ? `(${list.length})` : ""}`} testId="payroll-deductions">
+      <Disclaimer>Deductions are configured here and applied inside each pay run. Choose "pretax" vs "posttax" per line at the pay-run stage.</Disclaimer>
+      {list && list.length > 0 && (
+        <div className="divide-y divide-border">
+          {list.map((r) => (
+            <div key={r.pay_item_id} className="flex items-center justify-between px-4 py-2.5 text-xs" data-testid={`deduction-row-${r.pay_item_id}`}>
+              <span><span className="num mr-2">{r.code}</span>{r.label}</span>
+              <span className="num text-muted-foreground capitalize">{r.calc_type.replace("_", " ")} · default {r.default_rate}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="p-4 border-t border-border flex gap-2 flex-wrap items-end">
+        <div><Label className="overline">Code</Label><Input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="SS" className="rounded-sm w-32 num" data-testid="ded-code" /></div>
+        <div><Label className="overline">Label</Label><Input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="Salary sacrifice" className="rounded-sm w-48" data-testid="ded-label" /></div>
+        <div><Label className="overline">Default amount ($)</Label><Input value={f.default_rate} onChange={(e) => setF({ ...f, default_rate: e.target.value })} className="rounded-sm w-28 num" /></div>
+        <Button onClick={add} disabled={!f.code.trim() || !f.label.trim()} className="rounded-sm bg-primary text-primary-foreground" data-testid="ded-add">Add deduction</Button>
+      </div>
+    </Section>
+  );
+}
+
+
 function PayrollSettings() {
   const [subtab, setSubtab] = useState("employer");
   return (
@@ -457,7 +490,7 @@ function PayrollSettings() {
         <TabsContent value="employer" className="mt-4"><PayrollEmployer /></TabsContent>
         <TabsContent value="frequencies" className="mt-4"><ComingSoon phase="Phase 2" note="Custom pay-frequency definitions are configured per employee for now." /></TabsContent>
         <TabsContent value="items" className="mt-4"><PayItems /></TabsContent>
-        <TabsContent value="deductions" className="mt-4"><ComingSoon phase="Phase 2" note="Deduction library arrives with the Pay Run builder." /></TabsContent>
+        <TabsContent value="deductions" className="mt-4"><Deductions /></TabsContent>
         <TabsContent value="super" className="mt-4"><ComingSoon phase="Phase 4" note="Fund defaults and payday-super tracking arrive in Phase 4." /></TabsContent>
         <TabsContent value="leave" className="mt-4"><LeaveTypes /></TabsContent>
         <TabsContent value="payslip" className="mt-4"><ComingSoon phase="Phase 3" note="Payslip layout options arrive with the PDF generator." /></TabsContent>
