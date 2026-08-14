@@ -346,6 +346,108 @@ async def report_pdf(key: str, fy: Optional[str] = None, business_id: str = Depe
 
 
 # ---------------- accountant export wizard ----------------
+async def _payroll_accountant_pack(business_id: str, fy: str) -> dict:
+    """Build a set of payroll CSVs to bundle in the accountant ZIP.
+
+    Sensitive fields (TFN, BSB, account number, PAYROLL_ENC_KEY) are NEVER
+    included. Only aggregated + masked/publicly-safe data.
+    """
+    # Do we have any finalised runs?  If not, skip.
+    n = await db.pay_runs.count_documents(
+        {"business_id": business_id, "fy": fy, "status": "finalised"}
+    )
+    if n == 0:
+        return {}
+    from routes_payroll_phase4 import (
+        report_summary as _rep_summary,
+        payment_summary as _payment_summary,
+        super_quarter_report as _super_q,
+        leave_balances_report as _leave_bal,
+    )
+    out: dict = {}
+    # Payroll Summary
+    d = await _rep_summary(fy=fy, period_start=None, period_end=None, business_id=business_id)
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(["Employee", "Slips", "Gross", "Pre-tax Ded", "Taxable", "PAYG",
+                "Post-tax Ded", "Net", "Employer Super"])
+    for r in d["rows"]:
+        w.writerow([r["employee_name"], r["payslip_count"],
+                    r["gross_cents"] / 100, r["pretax_ded_cents"] / 100,
+                    r["taxable_cents"] / 100, r["payg_cents"] / 100,
+                    r["posttax_ded_cents"] / 100, r["net_cents"] / 100,
+                    r["super_cents"] / 100])
+    out[f"payroll_summary_{fy}.csv"] = buf.getvalue().encode("utf-8-sig")
+
+    # Payment summary per employee (STP-style)
+    d = await _payment_summary(fy=fy, employee_id=None, business_id=business_id)
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(["Employee", "Period Start", "Period End", "Slips", "Gross",
+                "Taxable", "PAYG", "Net", "Employer Super"])
+    for r in d["rows"]:
+        w.writerow([r["employee_name"], r["period_start"] or "", r["period_end"] or "",
+                    r["payslip_count"], r["gross_cents"] / 100, r["taxable_cents"] / 100,
+                    r["payg_cents"] / 100, r["net_cents"] / 100, r["super_cents"] / 100])
+    out[f"employee_payment_summary_{fy}.csv"] = buf.getvalue().encode("utf-8-sig")
+
+    # Super by quarter
+    d = await _super_q(fy=fy, quarter=None, business_id=business_id)
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(["Quarter", "Employee", "Fund", "Due", "Accrued", "Paid",
+                "Outstanding", "Status"])
+    for q in d.get("quarters", []):
+        for it in q["employees"]:
+            w.writerow([q["quarter"], it["employee_name"], it.get("fund_name", ""),
+                        q["due_date"], it["accrued_cents"] / 100,
+                        it["paid_cents"] / 100, it["outstanding_cents"] / 100,
+                        it["status"]])
+    out[f"super_by_quarter_{fy}.csv"] = buf.getvalue().encode("utf-8-sig")
+
+    # Leave balances (hours only, no sensitive data)
+    d = await _leave_bal(business_id=business_id)
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(["Employee", "Leave Type", "Entitled (h)", "Future Approved (h)", "Remaining (h)"])
+    for r in d["rows"]:
+        for t, v in r["by_type"].items():
+            w.writerow([r["employee_name"], t, v["entitled_hours"],
+                        v["future_approved_hours"], v["remaining_hours"]])
+    out["leave_balances.csv"] = buf.getvalue().encode("utf-8-sig")
+
+    # PAYG + wages payables outstanding
+    payg = await db.payg_liabilities.find(
+        {"business_id": business_id, "fy": fy}, {"_id": 0}
+    ).to_list(2000)
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(["Pay Run", "Period Start", "Period End", "Payment Date",
+                "PAYG Cents", "Paid Cents", "Outstanding", "Status"])
+    for p in payg:
+        out_c = max(0, int(p["payg_cents"]) - int(p.get("paid_cents", 0)))
+        w.writerow([p["pay_run_ref"], p["period_start"], p["period_end"],
+                    p["payment_date"], p["payg_cents"] / 100,
+                    p.get("paid_cents", 0) / 100, out_c / 100, p["status"]])
+    out[f"payg_liabilities_{fy}.csv"] = buf.getvalue().encode("utf-8-sig")
+
+    wp = await db.wages_payables.find(
+        {"business_id": business_id, "fy": fy}, {"_id": 0}
+    ).to_list(2000)
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(["Pay Run", "Payment Date", "Net Cents", "Paid Cents",
+                "Outstanding", "Status"])
+    for p in wp:
+        out_c = max(0, int(p["net_cents"]) - int(p.get("paid_cents", 0)))
+        w.writerow([p["pay_run_ref"], p["payment_date"], p["net_cents"] / 100,
+                    p.get("paid_cents", 0) / 100, out_c / 100, p["status"]])
+    out[f"wages_payables_{fy}.csv"] = buf.getvalue().encode("utf-8-sig")
+
+    out["README.txt"] = (
+        "Payroll accountant pack\n\n"
+        "Contains employer-facing payroll summaries for the FY. Verified by\n"
+        "the employer, not lodged. TFN, BSB and account numbers are NEVER\n"
+        "included. Super and PAYG payments listed here are internal records —\n"
+        "not evidence of ATO lodgement or super-fund transfer.\n"
+    ).encode()
+    return out
+
+
 class ExportIn(BaseModel):
     fy: str
     reports: List[str]
@@ -406,6 +508,16 @@ async def accountant_export(body: ExportIn, business_id: str = Depends(get_busin
                 except Exception:
                     continue
             z.writestr("receipts/manifest.json", json.dumps(manifest, indent=2))
+        # ----- Payroll pack (Phase 5) — included on ZIP if payroll has any finalised runs.
+        # Never includes TFN, BSB or account numbers. Only aggregate + masked data.
+        try:
+            payroll_pack = await _payroll_accountant_pack(business_id, body.fy)
+            if payroll_pack:
+                for fname, data in payroll_pack.items():
+                    z.writestr(f"payroll/{fname}", data)
+        except Exception as e:
+            z.writestr("payroll/README.txt",
+                        f"Payroll pack could not be generated: {e}\n")
     return Response(content=mem.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{safe}_{body.fy}_accountant_pack.zip"'})
 

@@ -49,6 +49,13 @@ def txn_out(d: dict) -> dict:
         "created_by": d.get("created_by"),
         "updated_at": d.get("updated_at"),
         "updated_by": d.get("updated_by"),
+        # Payroll integration flags (Phase 5)
+        "payroll_kind": d.get("payroll_kind"),
+        "pay_run_ref": d.get("pay_run_ref"),
+        "payroll_accrual": bool(d.get("payroll_accrual")),
+        "amount_inc_cents": int(d.get("amount_inc_cents") or 0),
+        "gst_cents": int(d.get("gst_cents") or 0),
+        "is_deleted": bool(d.get("is_deleted")),
     }
 
 

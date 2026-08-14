@@ -1,5 +1,6 @@
 """Authentication: custom JWT email/password + Emergent-managed Google Auth."""
 import os
+import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 
@@ -10,6 +11,8 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, EmailStr, Field
 
 from core import db, new_id, now_iso, current_fy
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 JWT_ALGORITHM = "HS256"
@@ -345,7 +348,10 @@ async def forgot_password(body: ForgotIn):
             "token": token, "user_id": user["user_id"], "used": False,
             "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
         })
-        print(f"[password-reset] link: /reset-password?token={token}")
+        # SECURITY: never log the token. An operator with log access could
+        # take over any account. Delivery is out-of-band (email integration
+        # pending). We log a non-sensitive event id only.
+        logger.info("[password-reset] token issued user_id=%s", user["user_id"])
     return {"ok": True, "message": "If that email exists, a reset link has been generated."}
 
 

@@ -160,6 +160,32 @@ Full-featured Australian payroll, layered on top of the accounting core WITHOUT 
 
 **Testing** — 104 unit tests + 17 Phase-6 API tests + 30 Phase-4 regression tests all green.
 
+**Phase 5 — Accounting Integration + Security & Production Audit (14 Aug 2026)** — FINAL integration pass:
+- **Payroll → P&L**: on pay-run finalise, post `wages_expense` = gross and `super_expense` = employer super to the main `transactions` collection with `external_source='payroll'`, `payroll_kind`, `pay_run_ref`, `payroll_accrual=true`, GST = 0, `no_gst` treatment. Idempotent by `(business_id, external_source, payroll_kind, pay_run_ref)`. Auto-creates system categories "Payroll → Wages & Salaries" and "Payroll → Employer Superannuation".
+- **Wages Payable ledger** (`wages_payables`) — net wages owed to employees after finalisation. `Mark Wages Paid` closes the payable; **NO new expense** created (P&L already captured at finalise).
+- **PAYG Liability ledger** (`payg_liabilities`) — PAYG withheld. `Mark PAYG Paid` closes; **NO expense** created (PAYG is a liability, not an expense).
+- **Super payment** — uses Phase-4 `super_liabilities` mark-paid flow; no second expense.
+- **Cash Flow endpoint** (`/api/cashflow`) — excludes `payroll_accrual=true` transactions and adds actual payroll payments from `wages_payables` / `payg_liabilities` / `super_liabilities`. Cash flow now correctly shows movements at payment date, P&L at finalisation date.
+- **Void reversal** — voiding a finalised pay run: soft-deletes its payroll transactions, marks its wages/PAYG liabilities `voided`, subtracts contribution from super_liability quarter. Payslip snapshots + `payroll_postings` audit trail preserved. NO hard deletes.
+- **Payroll accountant pack** — accountant ZIP export now bundles `payroll/` with payroll_summary, employee_payment_summary, super_by_quarter, leave_balances, payg_liabilities, wages_payables CSVs. TFN / BSB / account numbers explicitly excluded.
+- **New frontend page** `/payroll/liabilities` — KPI tiles + Wages Payable + PAYG owed tabs with mark-paid dialog.
+- **Backfill endpoint** `POST /payroll/pay-runs/{ref}/post-accounting` — owner-only idempotent — used to post accounting for pre-Phase-5 finalised runs.
+- **Payroll postings audit trail** (`payroll_postings`) — one row per pay run recording wages_txn_id, super_txn_id, amounts, posted_at, is_reversed.
+
+**Security fixes (from audit)**:
+- **SEC-001 (MEDIUM)**: password-reset token no longer printed to stdout. Reset flow now logs a non-sensitive event only. Delivery is out-of-band (email TBD).
+- **SEC-002 (MEDIUM)**: `PUT /api/accounts/{id}` now returns 404 on cross-tenant IDs (was returning another business's account record).
+
+**Production audit (Render)**:
+- Backend: no Emergent-only pip deps, all publicly installable, uvicorn compatible.
+- Frontend: yarn build clean (no `--force`), React 19 + recharts + react-is + date-fns peer deps resolve.
+- Env-driven config (MONGO_URL, JWT_SECRET, PAYROLL_ENC_KEY, COOKIE_SECURE, COOKIE_SAMESITE, REACT_APP_BACKEND_URL, CORS_ORIGINS).
+- Render config unchanged and validated: same-origin `/api/*` rewrite ahead of SPA fallback; HttpOnly + Secure + SameSite=Lax cookies preserved.
+- `.env` git-ignored; no committed secrets found.
+- Storage: `STORAGE_BACKEND=local` + `STORAGE_DIR=/app/data/receipts` — Render disk required.
+
+**Testing** — 174 unit + integration tests passing (Phase 1-6 + Phase 5 accounting + Phase 5 security/export). Cross-tenant, IDOR, unauth, GST safety, void reversal, idempotency all verified.
+
 ## Prioritised Backlog
 **P0 (next)**
 - **Payroll Phase 5 — Accounting Ledger Integration**: post finalised payroll totals (wages, PAYG payable, super payable, deductions) as journal entries into the main `transactions` collection so they flow into P&L, GST Center, Cash Flow and Accountant Export. Idempotent by pay_run_ref; never mutates the immutable payslip snapshot.

@@ -253,11 +253,19 @@ async def create_account(body: AccountIn, business_id: str = Depends(get_busines
 
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, body: AccountIn, business_id: str = Depends(get_business_id)):
-    await db.payment_accounts.update_one({"business_id": business_id, "account_id": account_id},
-                                         {"$set": body.model_dump()})
+    # SECURITY: scope BOTH the update AND the read by business_id to prevent
+    # a cross-tenant BOLA disclosure via mis-supplied account_id.
+    result = await db.payment_accounts.update_one(
+        {"business_id": business_id, "account_id": account_id},
+        {"$set": body.model_dump()},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Account not found")
     await db.transactions.update_many({"business_id": business_id, "account_id": account_id},
                                       {"$set": {"account_name": body.name}})
-    return await db.payment_accounts.find_one({"account_id": account_id}, {"_id": 0})
+    return await db.payment_accounts.find_one(
+        {"business_id": business_id, "account_id": account_id}, {"_id": 0}
+    )
 
 
 @router.post("/accounts/{account_id}/archive")

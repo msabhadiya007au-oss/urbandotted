@@ -258,3 +258,19 @@ async def ensure_indexes():
         [("business_id", 1), ("employee_id", 1)])
     await db.employee_leave_settings.create_index(
         [("business_id", 1), ("employee_id", 1)], unique=True)
+    # ----- Payroll Phase 5: accounting integration -----
+    await db.transactions.create_index(
+        [("business_id", 1), ("external_source", 1), ("payroll_kind", 1),
+         ("pay_run_ref", 1)])
+    await db.wages_payables.create_index(
+        [("business_id", 1), ("pay_run_ref", 1)], unique=True)
+    await db.wages_payables.create_index(
+        [("business_id", 1), ("status", 1), ("payment_date", 1)])
+    await db.payg_liabilities.create_index(
+        [("business_id", 1), ("pay_run_ref", 1)], unique=True)
+    await db.payg_liabilities.create_index(
+        [("business_id", 1), ("status", 1), ("payment_date", 1)])
+    await db.payroll_postings.create_index(
+        [("business_id", 1), ("pay_run_ref", 1)], unique=True)
+    await db.categories.create_index(
+        [("business_id", 1), ("parent_id", 1), ("name", 1)])

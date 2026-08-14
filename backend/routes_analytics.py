@@ -517,12 +517,37 @@ async def gst_center(fy: Optional[str] = None, business_id: str = Depends(get_bu
 @router.get("/cashflow")
 async def cashflow(fy: Optional[str] = None, business_id: str = Depends(get_business_id)):
     fy = fy or current_fy()
+    # NOTE: `payroll_accrual: true` transactions are recognised at pay-run finalisation
+    # to reduce operating profit at the right time, but they are NOT cash movements.
+    # Cash outflows for payroll come from the wages_payables / payg_liabilities /
+    # super_liabilities payment ledgers below.
     txns = await db.transactions.find(
-        {"business_id": business_id, "fy": fy, "is_deleted": {"$ne": True}}, {"_id": 0}).to_list(20000)
+        {"business_id": business_id, "fy": fy, "is_deleted": {"$ne": True},
+         "payroll_accrual": {"$ne": True}}, {"_id": 0}).to_list(20000)
     purchases = await db.inventory_purchases.find(
         {"business_id": business_id, "fy": fy, "is_deleted": {"$ne": True}}, {"_id": 0}).to_list(2000)
     assets = await db.assets.find(
         {"business_id": business_id, "fy": fy, "is_deleted": {"$ne": True}}, {"_id": 0}).to_list(1000)
+
+    # Actual payroll cash movements
+    def _payments_by_month(rows: list, amount_field: str = "amount_cents") -> dict:
+        out: dict = {}
+        for r in rows or []:
+            if r.get("status") == "voided":
+                continue
+            for p in r.get("payments") or []:
+                mk = (p.get("payment_date") or "")[:7]
+                out[mk] = out.get(mk, 0) + int(p.get(amount_field, 0) or 0)
+        return out
+    wp = await db.wages_payables.find(
+        {"business_id": business_id, "fy": fy}, {"_id": 0}).to_list(2000)
+    payg = await db.payg_liabilities.find(
+        {"business_id": business_id, "fy": fy}, {"_id": 0}).to_list(2000)
+    sup = await db.super_liabilities.find(
+        {"business_id": business_id, "fy": fy}, {"_id": 0}).to_list(2000)
+    wp_pay = _payments_by_month(wp)
+    payg_pay = _payments_by_month(payg)
+    sup_pay = _payments_by_month(sup)
 
     months = []
     for mk in fy_month_keys(fy):
@@ -532,16 +557,21 @@ async def cashflow(fy: Optional[str] = None, business_id: str = Depends(get_busi
                    if t["month_key"] == mk and t["txn_type"] in ("expense", "refund"))
         cout += sum(p.get("total_cost_cents", 0) for p in purchases if p["month_key"] == mk)
         cout += sum(a.get("price_inc_cents", 0) for a in assets if a["month_key"] == mk)
+        payroll_cash = wp_pay.get(mk, 0) + payg_pay.get(mk, 0) + sup_pay.get(mk, 0)
+        cout += payroll_cash
         months.append({"month_key": mk, "month_label": month_label(mk),
                        "cash_in": to_dollars(cin), "cash_out": to_dollars(cout),
+                       "payroll_cash_out": to_dollars(payroll_cash),
                        "net_cash_flow": to_dollars(cin - cout)})
     return {
         "fy": fy, "months": months,
         "totals": {"cash_in": round(sum(m["cash_in"] for m in months), 2),
                    "cash_out": round(sum(m["cash_out"] for m in months), 2),
+                   "payroll_cash_out": round(sum(m["payroll_cash_out"] for m in months), 2),
                    "net_cash_flow": round(sum(m["net_cash_flow"] for m in months), 2)},
-        "note": ("Cash flow tracks actual money movement (GST-inclusive), including inventory "
-                 "purchases and asset purchases. It is deliberately different from accounting profit."),
+        "note": ("Cash flow tracks actual money movement (GST-inclusive). "
+                 "Payroll expenses appear in P&L at pay-run finalisation, "
+                 "but only enter cash flow when wages / PAYG / super are marked paid."),
     }
 
 

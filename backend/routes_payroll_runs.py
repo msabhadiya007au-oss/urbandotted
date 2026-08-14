@@ -545,6 +545,14 @@ async def finalise(ref: str, business_id: str = Depends(get_business_id),
         await audit(business_id, user, "pay_run", ref, "phase4_side_effect_error",
                     after={"error": str(e)})
 
+    # ---- Phase 5 accounting integration (idempotent) ----
+    try:
+        from routes_payroll_accounting import post_payroll_accounting_for_run
+        await post_payroll_accounting_for_run(business_id, ref, user.get("email", ""))
+    except Exception as e:
+        await audit(business_id, user, "pay_run", ref, "phase5_posting_error",
+                    after={"error": str(e)})
+
     await audit(business_id, user, "pay_run", ref, "finalise", after=totals)
     return {"ok": True, "status": "finalised", "totals": totals, "payslip_refs": payslip_refs}
 
@@ -667,6 +675,14 @@ async def void_run(ref: str, body: VoidIn,
         {"$set": {"status": "voided", "voided_at": now_iso(),
                    "voided_by": user.get("email"), "void_reason": body.reason}},
     )
+    # ---- Phase 5: reverse accounting postings (only if the run was finalised) ----
+    if run.get("status") == "finalised":
+        try:
+            from routes_payroll_accounting import reverse_payroll_accounting_for_run
+            await reverse_payroll_accounting_for_run(business_id, ref, user.get("email", ""))
+        except Exception as e:
+            await audit(business_id, user, "pay_run", ref, "phase5_reversal_error",
+                        after={"error": str(e)})
     await audit(business_id, user, "pay_run", ref, "void", after={"reason": body.reason})
     return {"ok": True, "status": "voided"}
 

@@ -52,6 +52,7 @@ const PAYROLL_NAV = [
   { to: "/payroll/payslips", label: "Payslips", icon: FileText },
   { to: "/payroll/super", label: "Super", icon: PiggyBank },
   { to: "/payroll/leave", label: "Leave", icon: CalendarClock },
+  { to: "/payroll/liabilities", label: "Liabilities", icon: BellRing },
   { to: "/payroll/reports", label: "Payroll Reports", icon: FileBarChart2 },
 ];
 

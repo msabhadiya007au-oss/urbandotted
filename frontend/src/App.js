@@ -25,6 +25,7 @@ import Payslips from "@/pages/payroll/Payslips";
 import SuperLiabilities from "@/pages/payroll/SuperLiabilities";
 import LeavePage from "@/pages/payroll/LeavePage";
 import PayrollReports from "@/pages/payroll/PayrollReports";
+import PayrollLiabilities from "@/pages/payroll/PayrollLiabilities";
 
 function Protected({ children }) {
   const { user } = useApp();
@@ -81,6 +82,7 @@ function Router() {
       <Route path="/payroll/super" element={<Protected><SuperLiabilities /></Protected>} />
       <Route path="/payroll/leave" element={<Protected><LeavePage /></Protected>} />
       <Route path="/payroll/reports" element={<Protected><PayrollReports /></Protected>} />
+      <Route path="/payroll/liabilities" element={<Protected><PayrollLiabilities /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
