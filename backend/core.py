@@ -111,8 +111,13 @@ def current_fy() -> str:
 
 
 def fy_options(count: int = 8):
+    """Return the current AU FY and the previous `count-1` historical FYs.
+    Never emits a future FY. Ordered newest-first.
+    Example: on 2026-08-15 (FY2026-27) with count=8 returns
+        ['FY2026-27','FY2025-26','FY2024-25', ... 'FY2019-20']
+    """
     cur = int(current_fy().replace("FY", "").split("-")[0])
-    return [f"FY{y}-{str(y + 1)[2:]}" for y in range(cur + 1, cur - count, -1)]
+    return [f"FY{y}-{str(y + 1)[2:]}" for y in range(cur, cur - count, -1)]
 
 
 # ---------- GST engine ----------
