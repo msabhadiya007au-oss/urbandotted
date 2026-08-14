@@ -148,6 +148,18 @@ Full-featured Australian payroll, layered on top of the accounting core WITHOUT 
 
 **Testing** — `/app/tests/test_payroll_phase{1..4}.py` + `/app/backend/tests/test_payroll_phase4_integration.py`.
 
+**Phase 6 — Employee Profile & Management (14 Aug 2026)** — Extends existing Phase-1 module without creating a second system:
+- Expanded `EmployeeIn` model: address_line_2, postal address block + same-as-residential toggle, emergency contact (name/relationship/mobile/alt phone), work_email, alt_phone, probation_end_date, std_hours_per_(day/week/fortnight/month), std_working_days, optional Mon-Sun daily work pattern, mobile_norm for reliable duplicate detection.
+- **Employment periods** as embedded array on the employee doc — each period tracks start_date, end_date, termination_reason/note/at/by, rehired_at/by/note. Auto-initialised on create.
+- **Terminate + Rehire endpoints** — status transitions never delete history. Terminate closes the currently-open period. Rehire opens a new period, preserves all prior periods and all finalised payroll (Phase 1-4 immutability upheld). `/employees/{id}/history` is now owner-only.
+- **Duplicate detection on create**: email (case-insensitive) OR mobile (normalised trailing 8 digits) OR (first + last + DOB) match returns 409 with `code='possible_duplicate'` + matches array. Frontend shows a "Possible matching employee found" dialog with View / Rehire (only if terminated) / Create Separate / Cancel.
+- **TFN** on Tax settings — encrypted with the existing `PAYROLL_ENC_KEY`, owner-only, masked in normal reads, plaintext only when `reveal_tfn=true` (audit-logged). Sending tfn='' is a no-op so reveal-then-save doesn't wipe it.
+- **Documents & Notes** — existing `/api/documents/upload` extended with `linked_type='employee'`; the new `Documents & Notes` tab lists, uploads, downloads, deletes and edits per-employee documents via the same authenticated vault. Notes remain a single free-text field surfaced on the tab.
+- **Employees list** — new columns Employee ID, Pay Basis, Pay Frequency (batch-attached from `employee_pay_settings`); filter includes Active / On Leave / Terminated / All.
+- **EmployeeProfile** — 10 tabs (Overview, Employment, Pay Settings, Super, Tax/PAYG, Bank, Leave, Leave Settings, Documents & Notes, History) with VIEW→EDIT→VALIDATE→SAVE for every field, plus Terminate + Rehire actions in the header.
+
+**Testing** — 104 unit tests + 17 Phase-6 API tests + 30 Phase-4 regression tests all green.
+
 ## Prioritised Backlog
 **P0 (next)**
 - **Payroll Phase 5 — Accounting Ledger Integration**: post finalised payroll totals (wages, PAYG payable, super payable, deductions) as journal entries into the main `transactions` collection so they flow into P&L, GST Center, Cash Flow and Accountant Export. Idempotent by pay_run_ref; never mutates the immutable payslip snapshot.

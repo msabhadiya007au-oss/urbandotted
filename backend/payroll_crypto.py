@@ -74,3 +74,13 @@ def mask_bsb(bsb: str) -> str:
     if len(s) <= 3:
         return "*" * len(s)
     return "***-" + s[-3:] if len(s) == 6 else "*" * (len(s) - 3) + s[-3:]
+
+
+def mask_tfn(tfn: str) -> str:
+    """AU TFN is 8 or 9 digits. Show last 3."""
+    s = "".join(ch for ch in (tfn or "") if ch.isdigit())
+    if not s:
+        return ""
+    if len(s) <= 3:
+        return "*" * len(s)
+    return "*" * (len(s) - 3) + s[-3:]

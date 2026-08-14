@@ -124,14 +124,33 @@ class EmployeeIn(BaseModel):
     preferred_name: str = ""
     dob: Optional[str] = None
     email: Optional[EmailStr] = None
+    work_email: Optional[str] = ""
     mobile: str = ""
+    alt_phone: str = ""
+    # Residential
     address: str = ""
+    address_line_2: str = ""
     suburb: str = ""
     state: str = ""
     postcode: str = ""
     country: str = "Australia"
+    # Postal — if same_as_residential the below are ignored on read
+    postal_same_as_residential: bool = True
+    postal_address: str = ""
+    postal_address_line_2: str = ""
+    postal_suburb: str = ""
+    postal_state: str = ""
+    postal_postcode: str = ""
+    postal_country: str = "Australia"
+    # Emergency contact
+    emergency_contact_name: str = ""
+    emergency_contact_relationship: str = ""
+    emergency_contact_mobile: str = ""
+    emergency_contact_alt_phone: str = ""
+    # Employment
     employment_start_date: Optional[str] = None
     employment_end_date: Optional[str] = None
+    probation_end_date: Optional[str] = None
     status: str = "active"
     employment_type: str = "full_time"
     job_title: str = ""
@@ -140,6 +159,22 @@ class EmployeeIn(BaseModel):
     manager: str = ""
     award: str = ""
     classification: str = ""
+    # Ordinary working arrangement (independent of pay-settings history)
+    std_hours_per_day: str = "0"
+    std_hours_per_week: str = "0"
+    std_hours_per_fortnight: str = "0"
+    std_hours_per_month: str = "0"
+    std_working_days: str = "0"
+    # Optional per-day pattern (Mon..Sun); zero if not tracked
+    pattern_mon_hours: str = "0"
+    pattern_tue_hours: str = "0"
+    pattern_wed_hours: str = "0"
+    pattern_thu_hours: str = "0"
+    pattern_fri_hours: str = "0"
+    pattern_sat_hours: str = "0"
+    pattern_sun_hours: str = "0"
+    # Optional profile photo (id of an already-uploaded document)
+    photo_document_id: Optional[str] = None
     notes: str = ""
 
     @field_validator("status")
@@ -159,10 +194,14 @@ class EmployeeIn(BaseModel):
 
 @router.get("/employees")
 async def list_employees(status: Optional[str] = None, q: Optional[str] = None,
+                          include_terminated: bool = False,
                           business_id: str = Depends(get_business_id)):
     query: dict = {"business_id": business_id, "is_deleted": {"$ne": True}}
-    if status:
+    if status and status != "all":
         query["status"] = status
+    elif not include_terminated:
+        # Default listing hides archived; terminated stays visible unless explicitly filtered
+        query["status"] = {"$ne": "archived"}
     if q:
         query["$or"] = [
             {"first_name": {"$regex": q, "$options": "i"}},
@@ -170,29 +209,126 @@ async def list_employees(status: Optional[str] = None, q: Optional[str] = None,
             {"preferred_name": {"$regex": q, "$options": "i"}},
             {"email": {"$regex": q, "$options": "i"}},
             {"job_title": {"$regex": q, "$options": "i"}},
+            {"employee_id": {"$regex": q, "$options": "i"}},
         ]
-    items = await db.employees.find(query, {"_id": 0}).sort("last_name", 1).to_list(1000)
+    items = await db.employees.find(query, {"_id": 0}).sort("last_name", 1).to_list(2000)
+    # Batch-attach current pay-basis/frequency (single query, latest per employee).
+    ids = [e["employee_id"] for e in items]
+    if ids:
+        pay_rows = await db.employee_pay_settings.find(
+            {"business_id": business_id, "employee_id": {"$in": ids}},
+            {"_id": 0, "employee_id": 1, "pay_basis": 1, "pay_frequency": 1,
+             "base_hourly_rate": 1, "annual_salary": 1, "effective_from": 1},
+        ).sort([("employee_id", 1), ("effective_from", -1)]).to_list(20000)
+        current: dict = {}
+        for p in pay_rows:
+            if p["employee_id"] not in current:
+                current[p["employee_id"]] = p
+        for e in items:
+            c = current.get(e["employee_id"]) or {}
+            e["current_pay_basis"] = c.get("pay_basis")
+            e["current_pay_frequency"] = c.get("pay_frequency")
     return {"items": items, "total": len(items)}
 
 
+# --- Duplicate detection --------------------------------------------------
+class DuplicateCheckIn(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    email: Optional[str] = ""
+    mobile: Optional[str] = ""
+    dob: Optional[str] = None
+
+
+def _norm_mobile(v: str) -> str:
+    return "".join(ch for ch in (v or "") if ch.isdigit())
+
+
+async def _find_duplicates(business_id: str, body: "DuplicateCheckIn | EmployeeIn") -> list[dict]:
+    email = (getattr(body, "email", "") or "").strip().lower()
+    mobile = _norm_mobile(getattr(body, "mobile", "") or "")
+    dob = getattr(body, "dob", None)
+    first = (getattr(body, "first_name", "") or "").strip()
+    last = (getattr(body, "last_name", "") or "").strip()
+    or_clauses = []
+    if email:
+        or_clauses.append({"email": {"$regex": f"^{re_escape(email)}$", "$options": "i"}})
+    if mobile:
+        # Match against normalised digits-only field written at create time.
+        or_clauses.append({"mobile_norm": {"$regex": f"{mobile[-8:] if len(mobile) > 4 else mobile}$"}})
+    if first and last and dob:
+        or_clauses.append({
+            "first_name": {"$regex": f"^{re_escape(first)}$", "$options": "i"},
+            "last_name": {"$regex": f"^{re_escape(last)}$", "$options": "i"},
+            "dob": dob,
+        })
+    if not or_clauses:
+        return []
+    docs = await db.employees.find(
+        {"business_id": business_id, "is_deleted": {"$ne": True}, "$or": or_clauses},
+        {"_id": 0, "employee_id": 1, "first_name": 1, "last_name": 1,
+         "preferred_name": 1, "email": 1, "mobile": 1, "dob": 1,
+         "status": 1, "employment_start_date": 1, "job_title": 1},
+    ).to_list(20)
+    return docs
+
+
+def re_escape(s: str) -> str:
+    import re
+    return re.escape(s)
+
+
+@router.post("/employees/check-duplicate")
+async def check_duplicate(body: DuplicateCheckIn,
+                          business_id: str = Depends(get_business_id)):
+    matches = await _find_duplicates(business_id, body)
+    return {"matches": matches, "count": len(matches)}
+
+
 @router.post("/employees")
-async def create_employee(body: EmployeeIn, business_id: str = Depends(get_business_id),
+async def create_employee(body: EmployeeIn, force: bool = False,
+                           business_id: str = Depends(get_business_id),
                            user: dict = Depends(get_current_user)):
+    if not force:
+        matches = await _find_duplicates(business_id, body)
+        if matches:
+            raise HTTPException(status_code=409, detail={
+                "code": "possible_duplicate",
+                "message": "Possible matching employee found.",
+                "matches": matches,
+            })
     emp_id = new_id("emp")
     now = now_iso()
+    start = _iso_or_none(body.employment_start_date)
     doc = {
         **body.model_dump(),
         "employee_id": emp_id,
         "business_id": business_id,
         "dob": _iso_or_none(body.dob),
-        "employment_start_date": _iso_or_none(body.employment_start_date),
+        "mobile_norm": _norm_mobile(body.mobile or ""),
+        "employment_start_date": start,
         "employment_end_date": _iso_or_none(body.employment_end_date),
+        "probation_end_date": _iso_or_none(body.probation_end_date),
+        # Employment periods ledger — first period opens on create
+        "employment_periods": [{
+            "period_id": new_id("emppd"),
+            "start_date": start,
+            "end_date": None,
+            "termination_reason": None,
+            "termination_note": None,
+            "terminated_at": None,
+            "terminated_by": None,
+            "rehired_at": None,
+            "rehired_by": None,
+            "created_at": now,
+            "created_by": user.get("email"),
+        }],
         "is_deleted": False,
         "created_at": now,
         "created_by": user.get("email"),
     }
     await db.employees.insert_one(doc)
-    await audit(business_id, user, "employee", emp_id, "create", after=doc)
+    await audit(business_id, user, "employee", emp_id, "create", after={"employee_id": emp_id})
     return _clean(doc)
 
 
@@ -216,11 +352,14 @@ async def update_employee(employee_id: str, body: EmployeeIn,
     )
     if not prev:
         raise HTTPException(status_code=404, detail="Employee not found")
+    # Never overwrite the employment_periods history from the payload.
     update = {
         **body.model_dump(),
         "dob": _iso_or_none(body.dob),
+        "mobile_norm": _norm_mobile(body.mobile or ""),
         "employment_start_date": _iso_or_none(body.employment_start_date),
         "employment_end_date": _iso_or_none(body.employment_end_date),
+        "probation_end_date": _iso_or_none(body.probation_end_date),
         "updated_at": now_iso(),
         "updated_by": user.get("email"),
     }
@@ -228,8 +367,130 @@ async def update_employee(employee_id: str, body: EmployeeIn,
         {"business_id": business_id, "employee_id": employee_id}, {"$set": update}
     )
     await audit(business_id, user, "employee", employee_id, "update",
-                before=prev, after=update)
+                before=None, after={"updated_by": user.get("email")})
     return {**prev, **update}
+
+
+class TerminateIn(BaseModel):
+    termination_date: str
+    reason: str = ""
+    note: str = ""
+
+
+@router.post("/employees/{employee_id}/terminate")
+async def terminate_employee(employee_id: str, body: TerminateIn,
+                              business_id: str = Depends(get_business_id),
+                              user: dict = Depends(get_current_user)):
+    emp = await db.employees.find_one(
+        {"business_id": business_id, "employee_id": employee_id, "is_deleted": {"$ne": True}},
+        {"_id": 0},
+    )
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if emp.get("status") == "terminated":
+        raise HTTPException(400, "Employee is already terminated")
+    periods = emp.get("employment_periods") or []
+    # Close the currently-open period.
+    for p in periods:
+        if p.get("end_date") is None:
+            p["end_date"] = body.termination_date
+            p["termination_reason"] = body.reason
+            p["termination_note"] = body.note
+            p["terminated_at"] = now_iso()
+            p["terminated_by"] = user.get("email")
+            break
+    await db.employees.update_one(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"$set": {
+            "status": "terminated",
+            "employment_end_date": body.termination_date,
+            "termination_reason": body.reason,
+            "termination_note": body.note,
+            "terminated_at": now_iso(),
+            "terminated_by": user.get("email"),
+            "employment_periods": periods,
+            "updated_at": now_iso(),
+        }},
+    )
+    await audit(business_id, user, "employee", employee_id, "terminate",
+                after={"termination_date": body.termination_date, "reason": body.reason})
+    return {"ok": True, "status": "terminated", "termination_date": body.termination_date}
+
+
+class RehireIn(BaseModel):
+    start_date: str
+    employment_type: str = "full_time"
+    job_title: str = ""
+    note: str = ""
+
+    @field_validator("employment_type")
+    @classmethod
+    def _t(cls, v):
+        if v not in EMP_TYPE:
+            raise ValueError(f"employment_type must be one of {sorted(EMP_TYPE)}")
+        return v
+
+
+@router.post("/employees/{employee_id}/rehire")
+async def rehire_employee(employee_id: str, body: RehireIn,
+                           business_id: str = Depends(get_business_id),
+                           user: dict = Depends(get_current_user)):
+    emp = await db.employees.find_one(
+        {"business_id": business_id, "employee_id": employee_id, "is_deleted": {"$ne": True}},
+        {"_id": 0},
+    )
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if emp.get("status") == "active":
+        raise HTTPException(400, "Employee is already active")
+    now = now_iso()
+    new_period = {
+        "period_id": new_id("emppd"),
+        "start_date": body.start_date,
+        "end_date": None,
+        "termination_reason": None,
+        "termination_note": None,
+        "terminated_at": None,
+        "terminated_by": None,
+        "rehired_at": now,
+        "rehired_by": user.get("email"),
+        "rehire_note": body.note,
+        "created_at": now,
+        "created_by": user.get("email"),
+    }
+    periods = emp.get("employment_periods") or []
+    periods.append(new_period)
+    await db.employees.update_one(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"$set": {
+            "status": "active",
+            "employment_start_date": body.start_date,   # 'current' start date
+            "employment_end_date": None,
+            "employment_type": body.employment_type,
+            "job_title": body.job_title or emp.get("job_title", ""),
+            "employment_periods": periods,
+            "updated_at": now,
+            # Clear the top-level termination markers (history is preserved in periods)
+            "termination_reason": None, "termination_note": None,
+            "terminated_at": None, "terminated_by": None,
+        }},
+    )
+    await audit(business_id, user, "employee", employee_id, "rehire",
+                after={"start_date": body.start_date})
+    return {"ok": True, "status": "active", "period": new_period}
+
+
+@router.get("/employees/{employee_id}/history")
+async def employee_history(employee_id: str, business_id: str = Depends(get_business_id),
+                            user: dict = Depends(get_current_user)):
+    # Termination reason/note may contain sensitive HR info — owner-only.
+    _require_owner(user)
+    emp = await db.employees.find_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0},
+    )
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    return {"employee_id": employee_id, "periods": emp.get("employment_periods") or []}
 
 
 @router.delete("/employees/{employee_id}")
@@ -394,18 +655,32 @@ class TaxIn(BaseModel):
     help_loan: bool = False
     other_withholding_pct: str = "0"
     manual_payg_override: str = "0"               # dollars default per pay
+    tfn: str = ""                                  # optional; encrypted at rest
+    tfn_declared: bool = False
     notes: str = ""
 
 
 @router.get("/employees/{employee_id}/tax")
-async def get_tax(employee_id: str, business_id: str = Depends(get_business_id),
+async def get_tax(employee_id: str,
+                   reveal_tfn: bool = Query(False, description="Owner only — returns full TFN"),
+                   business_id: str = Depends(get_business_id),
                    user: dict = Depends(get_current_user)):
     _require_owner(user)
     await _ensure_employee(business_id, employee_id)
     doc = await db.employee_tax_settings.find_one(
         {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
-    )
-    return doc or {}
+    ) or {}
+    # Never leak the encrypted TFN in normal reads. `tfn_masked` is the display value.
+    out = {k: v for k, v in doc.items() if k != "tfn_enc"}
+    out["has_tfn"] = bool(doc.get("tfn_enc"))
+    out["tfn_masked"] = doc.get("tfn_masked", "")
+    if reveal_tfn and doc.get("tfn_enc"):
+        try:
+            out["tfn"] = pc.decrypt(doc["tfn_enc"])
+        except Exception as e:
+            raise HTTPException(500, str(e))
+        await audit(business_id, user, "employee_tax_settings", employee_id, "reveal_tfn")
+    return out
 
 
 @router.put("/employees/{employee_id}/tax")
@@ -414,23 +689,32 @@ async def put_tax(employee_id: str, body: TaxIn,
                    user: dict = Depends(get_current_user)):
     _require_owner(user)
     await _ensure_employee(business_id, employee_id)
-    prev = await db.employee_tax_settings.find_one(
-        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
-    )
     doc = {
-        **body.model_dump(),
+        "payg_enabled": body.payg_enabled,
+        "tax_free_threshold": body.tax_free_threshold,
+        "australian_resident": body.australian_resident,
+        "help_loan": body.help_loan,
+        "other_withholding_pct": body.other_withholding_pct,
+        "manual_payg_override": body.manual_payg_override,
+        "tfn_declared": body.tfn_declared,
+        "notes": body.notes,
         "employee_id": employee_id,
         "business_id": business_id,
         "updated_at": now_iso(),
         "updated_by": user.get("email"),
     }
+    # Only overwrite tfn_enc if a new TFN string is supplied. Sending "" is
+    # treated as "no change" so the reveal-then-save flow doesn't wipe it.
+    if body.tfn:
+        doc["tfn_enc"] = pc.encrypt(body.tfn)
+        doc["tfn_masked"] = pc.mask_tfn(body.tfn)
     await db.employee_tax_settings.update_one(
         {"business_id": business_id, "employee_id": employee_id},
         {"$set": doc}, upsert=True,
     )
-    # Audit log records only that tax settings were changed — never their values
+    # Audit records the change but never the actual TFN
     await audit(business_id, user, "employee_tax_settings", employee_id, "update")
-    return doc
+    return {k: v for k, v in doc.items() if k != "tfn_enc"}
 
 
 # ============================================================================

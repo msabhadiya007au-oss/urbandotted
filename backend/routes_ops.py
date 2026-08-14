@@ -65,6 +65,9 @@ async def upload_document(
     elif linked_type == "asset" and linked_id:
         await db.assets.update_one({"business_id": business_id, "asset_id": linked_id},
                                   {"$addToSet": {"receipt_document_ids": doc_id}})
+    elif linked_type == "employee" and linked_id:
+        await db.employees.update_one({"business_id": business_id, "employee_id": linked_id},
+                                     {"$addToSet": {"document_ids": doc_id}})
     await audit(business_id, user, "document", doc_id, "upload")
     return {k: v for k, v in doc.items() if k != "_id"}
 
@@ -72,7 +75,8 @@ async def upload_document(
 @router.get("/documents")
 async def list_documents(fy: Optional[str] = None, month_key: Optional[str] = None,
                          supplier_id: Optional[str] = None, category_id: Optional[str] = None,
-                         linked_type: Optional[str] = None, q: Optional[str] = None,
+                         linked_type: Optional[str] = None, linked_id: Optional[str] = None,
+                         q: Optional[str] = None,
                          business_id: str = Depends(get_business_id)):
     query = {"business_id": business_id, "is_deleted": False}
     if fy:
@@ -85,6 +89,8 @@ async def list_documents(fy: Optional[str] = None, month_key: Optional[str] = No
         query["category_id"] = category_id
     if linked_type:
         query["linked_type"] = linked_type
+    if linked_id:
+        query["linked_id"] = linked_id
     if q:
         query["$or"] = [{"filename": {"$regex": q, "$options": "i"}},
                         {"notes": {"$regex": q, "$options": "i"}}]
