@@ -16,6 +16,9 @@ import { Reports, ReportView, AccountantExport, Documents, Reminders } from "@/p
 import { MonthEnd, SearchResults, ImportCsv } from "@/pages/MonthEndSearch";
 import Settings from "@/pages/Settings";
 import DailyEntry from "@/pages/DailyEntry";
+import PayrollDashboard from "@/pages/payroll/PayrollDashboard";
+import Employees from "@/pages/payroll/Employees";
+import EmployeeProfile from "@/pages/payroll/EmployeeProfile";
 
 function Protected({ children }) {
   const { user } = useApp();
@@ -63,6 +66,9 @@ function Router() {
       <Route path="/import" element={<Protected><ImportCsv /></Protected>} />
       <Route path="/search" element={<Protected><SearchResults /></Protected>} />
       <Route path="/settings" element={<Protected><Settings /></Protected>} />
+      <Route path="/payroll" element={<Protected><PayrollDashboard /></Protected>} />
+      <Route path="/payroll/employees" element={<Protected><Employees /></Protected>} />
+      <Route path="/payroll/employees/:employeeId" element={<Protected><EmployeeProfile /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

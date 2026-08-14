@@ -1,0 +1,677 @@
+"""Payroll — Phase 1 endpoints.
+
+Scope:
+    - Employer profile  : Settings > Payroll > Employer Details
+    - Employees CRUD    : identity + employment + pay settings + super + tax + leave
+    - Bank details      : owner-only, encrypted at rest, masked in normal reads
+    - Payroll settings sub-resources (pay items, deductions, leave types) — CRUD only
+
+NOT in Phase 1 (later phases):
+    - Pay runs / calculations / PDFs
+    - Accounting integration
+    - Payroll dashboard KPI / reports
+    - STP / email
+
+All writes are scoped by business_id. All routes require the standard auth
+dependency. Endpoints that expose PII (bank, tax) additionally require `owner`
+role. No public URLs — everything is under `/api/payroll/*` behind auth.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone, date
+from typing import Optional, List
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from auth import get_current_user, get_business_id
+from core import db, new_id, now_iso, audit
+import payroll_crypto as pc
+
+router = APIRouter(prefix="/api/payroll", tags=["payroll"])
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+def _require_owner(user: dict):
+    if user.get("role") != "owner":
+        raise HTTPException(status_code=403, detail="Only the business owner can access this resource")
+
+
+def _clean(doc: Optional[dict]) -> Optional[dict]:
+    if not doc:
+        return doc
+    doc.pop("_id", None)
+    return doc
+
+
+def _iso_or_none(v):
+    if v is None or v == "":
+        return None
+    if isinstance(v, (date, datetime)):
+        return v.isoformat()[:10]
+    return str(v)[:10]
+
+
+PAY_BASIS = {"hourly", "annual_salary", "monthly_salary", "fixed_pay", "custom"}
+PAY_FREQ = {"weekly", "fortnightly", "monthly", "custom"}
+EMP_STATUS = {"active", "on_leave", "terminated", "archived"}
+EMP_TYPE = {"full_time", "part_time", "casual", "contractor_other"}
+
+
+# ============================================================================
+# Employer profile (payroll_settings collection, 1 doc per business)
+# ============================================================================
+class EmployerIn(BaseModel):
+    legal_business_name: str = Field(min_length=1, max_length=200)
+    trading_name: str = ""
+    abn: str = ""
+    business_address: str = ""
+    suburb: str = ""
+    state: str = ""
+    postcode: str = ""
+    country: str = "Australia"
+    business_phone: str = ""
+    payroll_email: str = ""
+    business_email: str = ""
+    logo_document_id: Optional[str] = None
+    default_currency: str = "AUD"
+    default_timezone: str = "Australia/Adelaide"
+    default_pay_frequency: str = "fortnightly"
+    default_super_rate: str = "0.12"  # decimal fraction — 12% SG for FY2026-27
+    default_payment_method: str = "bank_transfer"
+    default_bank_account_ref: str = ""
+
+    @field_validator("default_pay_frequency")
+    @classmethod
+    def _f(cls, v):
+        if v not in PAY_FREQ:
+            raise ValueError(f"pay_frequency must be one of {sorted(PAY_FREQ)}")
+        return v
+
+
+@router.get("/employer")
+async def get_employer(business_id: str = Depends(get_business_id)):
+    doc = await db.payroll_settings.find_one({"business_id": business_id})
+    return _clean(doc) or {}
+
+
+@router.put("/employer")
+async def put_employer(body: EmployerIn, business_id: str = Depends(get_business_id),
+                       user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    now = now_iso()
+    prev = await db.payroll_settings.find_one({"business_id": business_id}, {"_id": 0})
+    payload = {**body.model_dump(), "business_id": business_id, "updated_at": now}
+    if not prev:
+        payload["created_at"] = now
+    await db.payroll_settings.update_one(
+        {"business_id": business_id}, {"$set": payload}, upsert=True
+    )
+    await audit(business_id, user, "payroll_employer", business_id, "update",
+                before=prev, after=payload)
+    return payload
+
+
+# ============================================================================
+# Employees CRUD
+# ============================================================================
+class EmployeeIn(BaseModel):
+    first_name: str = Field(min_length=1, max_length=80)
+    middle_name: str = ""
+    last_name: str = Field(min_length=1, max_length=80)
+    preferred_name: str = ""
+    dob: Optional[str] = None
+    email: Optional[EmailStr] = None
+    mobile: str = ""
+    address: str = ""
+    suburb: str = ""
+    state: str = ""
+    postcode: str = ""
+    country: str = "Australia"
+    employment_start_date: Optional[str] = None
+    employment_end_date: Optional[str] = None
+    status: str = "active"
+    employment_type: str = "full_time"
+    job_title: str = ""
+    department: str = ""
+    location: str = ""
+    manager: str = ""
+    award: str = ""
+    classification: str = ""
+    notes: str = ""
+
+    @field_validator("status")
+    @classmethod
+    def _s(cls, v):
+        if v not in EMP_STATUS:
+            raise ValueError(f"status must be one of {sorted(EMP_STATUS)}")
+        return v
+
+    @field_validator("employment_type")
+    @classmethod
+    def _t(cls, v):
+        if v not in EMP_TYPE:
+            raise ValueError(f"employment_type must be one of {sorted(EMP_TYPE)}")
+        return v
+
+
+@router.get("/employees")
+async def list_employees(status: Optional[str] = None, q: Optional[str] = None,
+                          business_id: str = Depends(get_business_id)):
+    query: dict = {"business_id": business_id, "is_deleted": {"$ne": True}}
+    if status:
+        query["status"] = status
+    if q:
+        query["$or"] = [
+            {"first_name": {"$regex": q, "$options": "i"}},
+            {"last_name": {"$regex": q, "$options": "i"}},
+            {"preferred_name": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+            {"job_title": {"$regex": q, "$options": "i"}},
+        ]
+    items = await db.employees.find(query, {"_id": 0}).sort("last_name", 1).to_list(1000)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/employees")
+async def create_employee(body: EmployeeIn, business_id: str = Depends(get_business_id),
+                           user: dict = Depends(get_current_user)):
+    emp_id = new_id("emp")
+    now = now_iso()
+    doc = {
+        **body.model_dump(),
+        "employee_id": emp_id,
+        "business_id": business_id,
+        "dob": _iso_or_none(body.dob),
+        "employment_start_date": _iso_or_none(body.employment_start_date),
+        "employment_end_date": _iso_or_none(body.employment_end_date),
+        "is_deleted": False,
+        "created_at": now,
+        "created_by": user.get("email"),
+    }
+    await db.employees.insert_one(doc)
+    await audit(business_id, user, "employee", emp_id, "create", after=doc)
+    return _clean(doc)
+
+
+@router.get("/employees/{employee_id}")
+async def get_employee(employee_id: str, business_id: str = Depends(get_business_id)):
+    doc = await db.employees.find_one(
+        {"business_id": business_id, "employee_id": employee_id, "is_deleted": {"$ne": True}}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return _clean(doc)
+
+
+@router.put("/employees/{employee_id}")
+async def update_employee(employee_id: str, body: EmployeeIn,
+                           business_id: str = Depends(get_business_id),
+                           user: dict = Depends(get_current_user)):
+    prev = await db.employees.find_one(
+        {"business_id": business_id, "employee_id": employee_id, "is_deleted": {"$ne": True}},
+        {"_id": 0},
+    )
+    if not prev:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    update = {
+        **body.model_dump(),
+        "dob": _iso_or_none(body.dob),
+        "employment_start_date": _iso_or_none(body.employment_start_date),
+        "employment_end_date": _iso_or_none(body.employment_end_date),
+        "updated_at": now_iso(),
+        "updated_by": user.get("email"),
+    }
+    await db.employees.update_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"$set": update}
+    )
+    await audit(business_id, user, "employee", employee_id, "update",
+                before=prev, after=update)
+    return {**prev, **update}
+
+
+@router.delete("/employees/{employee_id}")
+async def archive_employee(employee_id: str, business_id: str = Depends(get_business_id),
+                            user: dict = Depends(get_current_user)):
+    """Soft-delete: sets status=archived and is_deleted=True.
+    Historical payroll records are never removed."""
+    prev = await db.employees.find_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
+    )
+    if not prev:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    await db.employees.update_one(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"$set": {"is_deleted": True, "status": "archived",
+                  "archived_at": now_iso(), "archived_by": user.get("email")}},
+    )
+    await audit(business_id, user, "employee", employee_id, "archive", before=prev)
+    return {"ok": True}
+
+
+# ============================================================================
+# Pay settings — history preserved by writing new documents (never overwrite)
+# ============================================================================
+class PaySettingsIn(BaseModel):
+    pay_basis: str = "hourly"
+    pay_frequency: str = "fortnightly"
+    base_hourly_rate: str = "0"          # dollars (decimal string) for safety
+    annual_salary: str = "0"
+    monthly_salary: str = "0"
+    fixed_pay_amount: str = "0"
+    std_hours_per_day: str = "0"
+    std_hours_per_week: str = "0"
+    std_hours_per_fortnight: str = "0"
+    std_hours_per_month: str = "0"
+    std_working_days: str = "0"
+    effective_from: str                  # YYYY-MM-DD required so history is meaningful
+    notes: str = ""
+
+    @field_validator("pay_basis")
+    @classmethod
+    def _pb(cls, v):
+        if v not in PAY_BASIS:
+            raise ValueError(f"pay_basis must be one of {sorted(PAY_BASIS)}")
+        return v
+
+    @field_validator("pay_frequency")
+    @classmethod
+    def _pf(cls, v):
+        if v not in PAY_FREQ:
+            raise ValueError(f"pay_frequency must be one of {sorted(PAY_FREQ)}")
+        return v
+
+
+async def _ensure_employee(business_id: str, employee_id: str) -> dict:
+    emp = await db.employees.find_one(
+        {"business_id": business_id, "employee_id": employee_id, "is_deleted": {"$ne": True}},
+        {"_id": 0},
+    )
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return emp
+
+
+@router.get("/employees/{employee_id}/pay-settings")
+async def list_pay_settings(employee_id: str, business_id: str = Depends(get_business_id)):
+    await _ensure_employee(business_id, employee_id)
+    items = await db.employee_pay_settings.find(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"_id": 0},
+    ).sort("effective_from", -1).to_list(200)
+    return {"items": items, "current": items[0] if items else None}
+
+
+@router.post("/employees/{employee_id}/pay-settings")
+async def add_pay_settings(employee_id: str, body: PaySettingsIn,
+                            business_id: str = Depends(get_business_id),
+                            user: dict = Depends(get_current_user)):
+    """Create a new pay-settings row. Also caps the previous row's
+    `effective_to` so the history is contiguous and non-overlapping."""
+    await _ensure_employee(business_id, employee_id)
+    new_from = _iso_or_none(body.effective_from)
+    if not new_from:
+        raise HTTPException(status_code=422, detail="effective_from is required")
+    # cap previous open-ended row
+    await db.employee_pay_settings.update_many(
+        {"business_id": business_id, "employee_id": employee_id, "effective_to": None},
+        {"$set": {"effective_to": new_from}},
+    )
+    row_id = new_id("payset")
+    doc = {
+        **body.model_dump(),
+        "effective_from": new_from,
+        "effective_to": None,
+        "pay_setting_id": row_id,
+        "employee_id": employee_id,
+        "business_id": business_id,
+        "created_at": now_iso(),
+        "created_by": user.get("email"),
+    }
+    await db.employee_pay_settings.insert_one(doc)
+    await audit(business_id, user, "employee_pay_settings", row_id, "create", after=doc)
+    return _clean(doc)
+
+
+# ============================================================================
+# Super profile
+# ============================================================================
+class SuperIn(BaseModel):
+    super_enabled: bool = True
+    fund_name: str = ""
+    member_number: str = ""
+    usi: str = ""
+    fund_abn: str = ""
+    fund_source: str = "employee_nominated"       # or employer_default
+    sg_rate: str = "0.12"                         # decimal fraction; per-employee override
+    additional_employer_pct: str = "0"
+    voluntary_pct: str = "0"
+    salary_sacrifice_amount: str = "0"
+
+
+@router.get("/employees/{employee_id}/super")
+async def get_super(employee_id: str, business_id: str = Depends(get_business_id)):
+    await _ensure_employee(business_id, employee_id)
+    doc = await db.employee_super.find_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
+    )
+    return doc or {}
+
+
+@router.put("/employees/{employee_id}/super")
+async def put_super(employee_id: str, body: SuperIn,
+                     business_id: str = Depends(get_business_id),
+                     user: dict = Depends(get_current_user)):
+    await _ensure_employee(business_id, employee_id)
+    prev = await db.employee_super.find_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
+    )
+    doc = {
+        **body.model_dump(),
+        "employee_id": employee_id,
+        "business_id": business_id,
+        "updated_at": now_iso(),
+        "updated_by": user.get("email"),
+    }
+    await db.employee_super.update_one(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"$set": doc}, upsert=True,
+    )
+    await audit(business_id, user, "employee_super", employee_id, "update",
+                before=prev, after=doc)
+    return doc
+
+
+# ============================================================================
+# Tax / PAYG settings  (owner-only — sensitive)
+# ============================================================================
+class TaxIn(BaseModel):
+    payg_enabled: bool = True
+    tax_free_threshold: bool = True
+    australian_resident: bool = True
+    help_loan: bool = False
+    other_withholding_pct: str = "0"
+    manual_payg_override: str = "0"               # dollars default per pay
+    notes: str = ""
+
+
+@router.get("/employees/{employee_id}/tax")
+async def get_tax(employee_id: str, business_id: str = Depends(get_business_id),
+                   user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    await _ensure_employee(business_id, employee_id)
+    doc = await db.employee_tax_settings.find_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
+    )
+    return doc or {}
+
+
+@router.put("/employees/{employee_id}/tax")
+async def put_tax(employee_id: str, body: TaxIn,
+                   business_id: str = Depends(get_business_id),
+                   user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    await _ensure_employee(business_id, employee_id)
+    prev = await db.employee_tax_settings.find_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
+    )
+    doc = {
+        **body.model_dump(),
+        "employee_id": employee_id,
+        "business_id": business_id,
+        "updated_at": now_iso(),
+        "updated_by": user.get("email"),
+    }
+    await db.employee_tax_settings.update_one(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"$set": doc}, upsert=True,
+    )
+    # Audit log records only that tax settings were changed — never their values
+    await audit(business_id, user, "employee_tax_settings", employee_id, "update")
+    return doc
+
+
+# ============================================================================
+# Bank details (owner-only, encrypted at rest, masked on normal reads)
+# ============================================================================
+class BankIn(BaseModel):
+    account_name: str = ""
+    bsb: str = ""
+    account_number: str = ""
+    payment_reference: str = ""
+
+
+def _bank_out(doc: Optional[dict], reveal: bool = False) -> dict:
+    if not doc:
+        return {}
+    out = {
+        "account_name": doc.get("account_name", ""),
+        "payment_reference": doc.get("payment_reference", ""),
+        "bsb_masked": doc.get("bsb_masked", ""),
+        "account_number_masked": doc.get("account_number_masked", ""),
+        "has_details": bool(doc.get("bsb_enc") or doc.get("account_number_enc")),
+        "updated_at": doc.get("updated_at"),
+    }
+    if reveal:
+        try:
+            out["bsb"] = pc.decrypt(doc.get("bsb_enc", ""))
+            out["account_number"] = pc.decrypt(doc.get("account_number_enc", ""))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return out
+
+
+@router.get("/employees/{employee_id}/bank")
+async def get_bank(employee_id: str,
+                    reveal: bool = Query(False, description="Owner only — returns full BSB/account"),
+                    business_id: str = Depends(get_business_id),
+                    user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    await _ensure_employee(business_id, employee_id)
+    doc = await db.employee_bank_details.find_one(
+        {"business_id": business_id, "employee_id": employee_id}, {"_id": 0}
+    )
+    if reveal and doc:
+        await audit(business_id, user, "employee_bank_details", employee_id, "reveal")
+    return _bank_out(doc, reveal=reveal)
+
+
+@router.put("/employees/{employee_id}/bank")
+async def put_bank(employee_id: str, body: BankIn,
+                    business_id: str = Depends(get_business_id),
+                    user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    await _ensure_employee(business_id, employee_id)
+    doc = {
+        "employee_id": employee_id,
+        "business_id": business_id,
+        "account_name": body.account_name,
+        "payment_reference": body.payment_reference,
+        "bsb_enc": pc.encrypt(body.bsb),
+        "account_number_enc": pc.encrypt(body.account_number),
+        "bsb_masked": pc.mask_bsb(body.bsb),
+        "account_number_masked": pc.mask_account(body.account_number),
+        "updated_at": now_iso(),
+        "updated_by": user.get("email"),
+    }
+    await db.employee_bank_details.update_one(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"$set": doc}, upsert=True,
+    )
+    # Audit records the change but never the actual account number
+    await audit(business_id, user, "employee_bank_details", employee_id, "update")
+    return _bank_out(doc)
+
+
+# ============================================================================
+# Leave balances (snapshots — transactions ledger added in Phase 4)
+# ============================================================================
+class LeaveBalanceIn(BaseModel):
+    leave_type: str = Field(min_length=1, max_length=60)
+    entitled_hours: str = "0"
+    future_approved_hours: str = "0"
+    remaining_hours: str = "0"
+
+
+@router.get("/employees/{employee_id}/leave-balances")
+async def list_leave_balances(employee_id: str, business_id: str = Depends(get_business_id)):
+    await _ensure_employee(business_id, employee_id)
+    items = await db.employee_leave_balances.find(
+        {"business_id": business_id, "employee_id": employee_id},
+        {"_id": 0},
+    ).sort("leave_type", 1).to_list(50)
+    return {"items": items}
+
+
+@router.put("/employees/{employee_id}/leave-balances/{leave_type}")
+async def upsert_leave_balance(employee_id: str, leave_type: str, body: LeaveBalanceIn,
+                                business_id: str = Depends(get_business_id),
+                                user: dict = Depends(get_current_user)):
+    await _ensure_employee(business_id, employee_id)
+    prev = await db.employee_leave_balances.find_one(
+        {"business_id": business_id, "employee_id": employee_id, "leave_type": leave_type},
+        {"_id": 0},
+    )
+    doc = {
+        **body.model_dump(),
+        "employee_id": employee_id,
+        "business_id": business_id,
+        "updated_at": now_iso(),
+        "updated_by": user.get("email"),
+    }
+    await db.employee_leave_balances.update_one(
+        {"business_id": business_id, "employee_id": employee_id, "leave_type": leave_type},
+        {"$set": doc}, upsert=True,
+    )
+    await audit(business_id, user, "employee_leave_balances",
+                f"{employee_id}:{leave_type}", "update", before=prev, after=doc)
+    return doc
+
+
+# ============================================================================
+# Payroll settings: pay-items / deductions / leave-types (CRUD only in Ph1)
+# ============================================================================
+class PayItemIn(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+    label: str = Field(min_length=1, max_length=80)
+    kind: str = "earning"                 # earning | deduction | leave
+    calc_type: str = "hourly"             # fixed|hourly|percent_of_base|percent_loading|units_rate
+    default_rate: str = "0"
+    taxable: bool = True
+    super_liable: bool = True
+    is_active: bool = True
+
+    @field_validator("kind")
+    @classmethod
+    def _k(cls, v):
+        if v not in {"earning", "deduction", "leave"}:
+            raise ValueError("kind must be earning|deduction|leave")
+        return v
+
+    @field_validator("calc_type")
+    @classmethod
+    def _c(cls, v):
+        if v not in {"fixed", "hourly", "percent_of_base", "percent_loading", "units_rate"}:
+            raise ValueError("invalid calc_type")
+        return v
+
+
+@router.get("/pay-items")
+async def list_pay_items(business_id: str = Depends(get_business_id)):
+    items = await db.pay_items.find(
+        {"business_id": business_id}, {"_id": 0}
+    ).sort([("kind", 1), ("label", 1)]).to_list(500)
+    return {"items": items}
+
+
+@router.post("/pay-items")
+async def create_pay_item(body: PayItemIn, business_id: str = Depends(get_business_id),
+                           user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    existing = await db.pay_items.find_one({"business_id": business_id, "code": body.code})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Pay item code '{body.code}' already exists")
+    doc = {
+        **body.model_dump(),
+        "pay_item_id": new_id("pi"),
+        "business_id": business_id,
+        "created_at": now_iso(),
+        "created_by": user.get("email"),
+    }
+    await db.pay_items.insert_one(doc)
+    await audit(business_id, user, "pay_item", doc["pay_item_id"], "create", after=doc)
+    return _clean(doc)
+
+
+@router.put("/pay-items/{pay_item_id}")
+async def update_pay_item(pay_item_id: str, body: PayItemIn,
+                           business_id: str = Depends(get_business_id),
+                           user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    prev = await db.pay_items.find_one(
+        {"business_id": business_id, "pay_item_id": pay_item_id}, {"_id": 0}
+    )
+    if not prev:
+        raise HTTPException(status_code=404, detail="Pay item not found")
+    update = {**body.model_dump(), "updated_at": now_iso(), "updated_by": user.get("email")}
+    await db.pay_items.update_one(
+        {"business_id": business_id, "pay_item_id": pay_item_id}, {"$set": update}
+    )
+    await audit(business_id, user, "pay_item", pay_item_id, "update", before=prev, after=update)
+    return {**prev, **update}
+
+
+# --- Leave types (labels + defaults) — light CRUD -------------------------
+class LeaveTypeIn(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+    label: str = Field(min_length=1, max_length=80)
+    accrual_hours_per_year: str = "0"
+    is_active: bool = True
+
+
+@router.get("/leave-types")
+async def list_leave_types(business_id: str = Depends(get_business_id)):
+    items = await db.pay_leave_types.find(
+        {"business_id": business_id}, {"_id": 0}
+    ).sort("label", 1).to_list(200)
+    return {"items": items}
+
+
+@router.post("/leave-types")
+async def create_leave_type(body: LeaveTypeIn, business_id: str = Depends(get_business_id),
+                             user: dict = Depends(get_current_user)):
+    _require_owner(user)
+    if await db.pay_leave_types.find_one({"business_id": business_id, "code": body.code}):
+        raise HTTPException(status_code=400, detail=f"Leave code '{body.code}' already exists")
+    doc = {
+        **body.model_dump(),
+        "leave_type_id": new_id("lt"),
+        "business_id": business_id,
+        "created_at": now_iso(),
+        "created_by": user.get("email"),
+    }
+    await db.pay_leave_types.insert_one(doc)
+    await audit(business_id, user, "leave_type", doc["leave_type_id"], "create", after=doc)
+    return _clean(doc)
+
+
+# ============================================================================
+# Compliance / status flags surfaced to the UI
+# ============================================================================
+@router.get("/status")
+async def payroll_status(business_id: str = Depends(get_business_id)):
+    """Non-sensitive: whether module features are configured / enabled.
+    Used by the UI to show STP:NOT CONNECTED / PAYG:MANUAL / Super:TRACKED banners."""
+    employer = await db.payroll_settings.find_one({"business_id": business_id}, {"_id": 0})
+    return {
+        "stp": {"enabled": False, "status": "NOT CONNECTED"},
+        "payg": {"mode": "manual", "note": "Verify against ATO tax tables before finalising pay."},
+        "super": {"mode": "tracked", "note": "Payments are tracked, not automatically transferred."},
+        "email": {"enabled": False, "note": "Email service not configured. Download PDF is available."},
+        "employer_configured": bool(employer and employer.get("legal_business_name")),
+    }
+
+
+__all__ = ["router"]

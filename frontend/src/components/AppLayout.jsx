@@ -4,7 +4,7 @@ import {
   LayoutDashboard, TrendingUp, RotateCcw, Receipt, Megaphone, Boxes, Calculator,
   Wrench, Building2, Percent, Waves, ListOrdered, FolderOpen, FileBarChart2,
   CalendarCheck2, FileOutput, BellRing, Settings as SettingsIcon, Plus, Search,
-  LogOut, Menu, X, Upload, CalendarDays,
+  LogOut, Menu, X, Upload, CalendarDays, Users,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { api, fyLabel } from "@/lib/api";
@@ -39,6 +39,14 @@ const NAV = [
   { to: "/accountant-export", label: "Accountant Export", icon: FileOutput },
   { to: "/reminders", label: "Reminders", icon: BellRing },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
+];
+
+// Payroll module (Phase 1 exposes Employees + Payroll Settings; further pages
+// unlock in later phases). Kept as a separate section so the existing NAV
+// order is untouched.
+const PAYROLL_NAV = [
+  { to: "/payroll", label: "Payroll Dashboard", icon: LayoutDashboard },
+  { to: "/payroll/employees", label: "Employees", icon: Users },
 ];
 
 export default function AppLayout({ children }) {
@@ -94,6 +102,22 @@ export default function AppLayout({ children }) {
                   <span className="num text-[10px] px-1.5 py-0.5 bg-warning/10 text-warning border border-warning/30 rounded-sm"
                     data-testid="nav-reminder-count">{reminderCount}</span>
                 )}
+              </Link>
+            );
+          })}
+
+          <div className="mt-4 px-5 pb-1 overline" data-testid="payroll-section-heading">Payroll</div>
+          {PAYROLL_NAV.map(({ to, label, icon: Icon }) => {
+            const active = location.pathname === to
+              || (to === "/payroll/employees" && location.pathname.startsWith("/payroll/employees"))
+              || (to === "/payroll" && location.pathname === "/payroll");
+            return (
+              <Link key={to} to={to} data-testid={`nav-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+                className={`flex items-center gap-2.5 px-5 py-[9px] text-[13px] border-l-2 transition-colors duration-150
+                  ${active ? "border-primary bg-accent/60 text-foreground font-semibold"
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}>
+                <Icon size={15} strokeWidth={active ? 2.2 : 1.7} />
+                <span className="flex-1">{label}</span>
               </Link>
             );
           })}

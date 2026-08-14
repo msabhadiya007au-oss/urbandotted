@@ -50,6 +50,9 @@ services:
         value: local
       - key: STORAGE_DIR
         value: /var/data/receipts
+      # Payroll bank-detail encryption key. Generate once with openssl rand -hex 48.
+      - key: PAYROLL_ENC_KEY
+        generateValue: true
       # Optional S3 storage. Uncomment and provide credentials to enable.
       # - key: S3_BUCKET
       #   sync: false

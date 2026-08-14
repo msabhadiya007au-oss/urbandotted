@@ -26,6 +26,9 @@ PyJWT==2.9.0
 # --- Config / env ----------------------------------------------------------
 python-dotenv==1.0.1
 
+# --- Crypto (bank details encryption via Fernet AES-128-CBC + HMAC) --------
+cryptography==43.0.1
+
 # --- HTTP client (used by auth session exchange + legacy storage) ---------
 requests==2.32.3
 certifi>=2024.7.4

@@ -25,7 +25,7 @@ export default function Settings() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="rounded-sm bg-muted h-9 flex-wrap h-auto">
           {[["business", "Business"], ["access", "Access"], ["accounts", "Payment Accounts"], ["products", "Products"],
-            ["recurring", "Recurring Expenses"], ["demo", "Demo Data"], ["integrations", "Integrations"],
+            ["recurring", "Recurring Expenses"], ["payroll", "Payroll"], ["demo", "Demo Data"], ["integrations", "Integrations"],
             ["backup", "Backup"], ["audit", "Audit Log"]].map(([k, l]) => (
             <TabsTrigger key={k} value={k} className="rounded-sm text-xs" data-testid={`settings-tab-${k}`}>{l}</TabsTrigger>
           ))}
@@ -36,6 +36,7 @@ export default function Settings() {
         <TabsContent value="accounts" className="mt-4"><Accounts /></TabsContent>
         <TabsContent value="products" className="mt-4"><Products /></TabsContent>
         <TabsContent value="recurring" className="mt-4"><Recurring /></TabsContent>
+        <TabsContent value="payroll" className="mt-4"><PayrollSettings /></TabsContent>
         <TabsContent value="demo" className="mt-4"><DemoData /></TabsContent>
         <TabsContent value="integrations" className="mt-4"><Integrations /></TabsContent>
         <TabsContent value="backup" className="mt-4"><Backup /></TabsContent>
@@ -440,3 +441,210 @@ function AuditLog() {
     </Section>
   );
 }
+
+function PayrollSettings() {
+  const [subtab, setSubtab] = useState("employer");
+  return (
+    <div data-testid="payroll-settings">
+      <Tabs value={subtab} onValueChange={setSubtab}>
+        <TabsList className="rounded-sm bg-muted h-9 flex-wrap h-auto">
+          {[["employer", "Employer"], ["frequencies", "Pay Frequencies"], ["items", "Pay Items"],
+            ["deductions", "Deductions"], ["super", "Super"], ["leave", "Leave Types"],
+            ["payslip", "Payslip"], ["email", "Email"], ["compliance", "Compliance"]].map(([k, l]) => (
+            <TabsTrigger key={k} value={k} className="rounded-sm text-xs" data-testid={`payroll-tab-${k}`}>{l}</TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value="employer" className="mt-4"><PayrollEmployer /></TabsContent>
+        <TabsContent value="frequencies" className="mt-4"><ComingSoon phase="Phase 2" note="Custom pay-frequency definitions are configured per employee for now." /></TabsContent>
+        <TabsContent value="items" className="mt-4"><PayItems /></TabsContent>
+        <TabsContent value="deductions" className="mt-4"><ComingSoon phase="Phase 2" note="Deduction library arrives with the Pay Run builder." /></TabsContent>
+        <TabsContent value="super" className="mt-4"><ComingSoon phase="Phase 4" note="Fund defaults and payday-super tracking arrive in Phase 4." /></TabsContent>
+        <TabsContent value="leave" className="mt-4"><LeaveTypes /></TabsContent>
+        <TabsContent value="payslip" className="mt-4"><ComingSoon phase="Phase 3" note="Payslip layout options arrive with the PDF generator." /></TabsContent>
+        <TabsContent value="email" className="mt-4"><EmailNotConfigured /></TabsContent>
+        <TabsContent value="compliance" className="mt-4"><Compliance /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ComingSoon({ phase, note }) {
+  return (
+    <Section title={`Coming in ${phase}`}>
+      <div className="p-6"><Disclaimer>{note}</Disclaimer></div>
+    </Section>
+  );
+}
+
+function EmailNotConfigured() {
+  return (
+    <Section title="Email">
+      <div className="p-6"><Disclaimer>Email service not configured. Payslips can still be downloaded as PDF once Phase 3 ships.</Disclaimer></div>
+    </Section>
+  );
+}
+
+function Compliance() {
+  const [status, setStatus] = useState(null);
+  useEffect(() => { api.get("/payroll/status").then(({ data }) => setStatus(data)).catch(() => setStatus(false)); }, []);
+  if (!status) return <Loading />;
+  return (
+    <Section title="Compliance status" testId="payroll-compliance">
+      <div className="p-4 space-y-2">
+        <div className="text-sm"><span className="overline mr-2">STP</span>{status.stp.status}</div>
+        <div className="text-sm"><span className="overline mr-2">PAYG</span>{status.payg.mode} &mdash; {status.payg.note}</div>
+        <div className="text-sm"><span className="overline mr-2">Super</span>{status.super.mode} &mdash; {status.super.note}</div>
+        <div className="text-sm"><span className="overline mr-2">Email</span>{status.email.note}</div>
+      </div>
+    </Section>
+  );
+}
+
+function PayrollEmployer() {
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.get("/payroll/employer").then(({ data }) => setF({
+      legal_business_name: "", trading_name: "", abn: "", business_address: "",
+      suburb: "", state: "", postcode: "", country: "Australia",
+      business_phone: "", payroll_email: "", business_email: "",
+      default_currency: "AUD", default_timezone: "Australia/Adelaide",
+      default_pay_frequency: "fortnightly", default_super_rate: "0.12",
+      default_payment_method: "bank_transfer", default_bank_account_ref: "",
+      ...(data || {}),
+    })).catch(() => setF(false));
+  }, []);
+  if (f === null) return <Loading />;
+  if (f === false) return <Empty title="Unable to load employer profile" />;
+  const set = (k) => (v) => setF((p) => ({ ...p, [k]: typeof v === "string" ? v : v.target.value }));
+  const save = async () => {
+    setBusy(true);
+    try {
+      const payload = { ...f }; delete payload.business_id; delete payload.updated_at; delete payload.created_at;
+      await api.put("/payroll/employer", payload);
+      toast.success("Employer profile saved");
+    } catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <Section title="Employer / company details" testId="payroll-employer-form">
+      <div className="p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div><Label className="overline">Legal business name *</Label><Input value={f.legal_business_name} onChange={set("legal_business_name")} className="rounded-sm" data-testid="employer-legal-name" /></div>
+        <div><Label className="overline">Trading name</Label><Input value={f.trading_name} onChange={set("trading_name")} className="rounded-sm" /></div>
+        <div><Label className="overline">ABN</Label><Input value={f.abn} onChange={set("abn")} className="rounded-sm num" data-testid="employer-abn" /></div>
+        <div className="sm:col-span-2 lg:col-span-3"><Label className="overline">Business address</Label><Input value={f.business_address} onChange={set("business_address")} className="rounded-sm" /></div>
+        <div><Label className="overline">Suburb</Label><Input value={f.suburb} onChange={set("suburb")} className="rounded-sm" /></div>
+        <div><Label className="overline">State</Label><Input value={f.state} onChange={set("state")} className="rounded-sm" /></div>
+        <div><Label className="overline">Postcode</Label><Input value={f.postcode} onChange={set("postcode")} className="rounded-sm num" /></div>
+        <div><Label className="overline">Country</Label><Input value={f.country} onChange={set("country")} className="rounded-sm" /></div>
+        <div><Label className="overline">Business phone</Label><Input value={f.business_phone} onChange={set("business_phone")} className="rounded-sm num" /></div>
+        <div><Label className="overline">Payroll email</Label><Input type="email" value={f.payroll_email} onChange={set("payroll_email")} className="rounded-sm" /></div>
+        <div><Label className="overline">Business email</Label><Input type="email" value={f.business_email} onChange={set("business_email")} className="rounded-sm" /></div>
+        <div><Label className="overline">Default pay frequency</Label>
+          <Select value={f.default_pay_frequency} onValueChange={set("default_pay_frequency")}>
+            <SelectTrigger className="rounded-sm text-xs" data-testid="employer-freq"><SelectValue /></SelectTrigger>
+            <SelectContent className="bg-popover">
+              {[["weekly", "Weekly"], ["fortnightly", "Fortnightly"], ["monthly", "Monthly"], ["custom", "Custom"]].map(([v, l]) =>
+                <SelectItem key={v} value={v}>{l}</SelectItem>)}
+            </SelectContent>
+          </Select></div>
+        <div><Label className="overline">Default SG rate (decimal)</Label><Input value={f.default_super_rate} onChange={set("default_super_rate")} className="rounded-sm num" data-testid="employer-sg-rate" /></div>
+        <div><Label className="overline">Default payment method</Label><Input value={f.default_payment_method} onChange={set("default_payment_method")} className="rounded-sm" /></div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <Button onClick={save} disabled={busy || !f.legal_business_name.trim()} className="rounded-sm bg-primary text-primary-foreground" data-testid="employer-save">
+            {busy ? "Saving…" : "Save employer profile"}
+          </Button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function PayItems() {
+  const [list, setList] = useState(null);
+  const [f, setF] = useState({ code: "", label: "", kind: "earning", calc_type: "hourly", default_rate: "0", taxable: true, super_liable: true, is_active: true });
+  const load = () => api.get("/payroll/pay-items").then(({ data }) => setList(data.items || [])).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  const set = (k) => (v) => setF((p) => ({ ...p, [k]: typeof v === "string" ? v : v.target.value }));
+  const add = async () => {
+    try { await api.post("/payroll/pay-items", f); toast.success("Pay item created"); setF({ ...f, code: "", label: "" }); load(); }
+    catch (e) { toast.error(errText(e)); }
+  };
+  return (
+    <Section title={`Pay items ${list ? `(${list.length})` : ""}`} testId="payroll-pay-items">
+      <Disclaimer>Configure the earnings, penalty, allowance and deduction types your business uses. Award rates are NOT hard-coded &mdash; you set the default rate for each item.</Disclaimer>
+      {list && list.length > 0 && (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader><TableRow className="hover:bg-transparent">
+              {["Code", "Label", "Kind", "Calc", "Rate", "Taxable", "Super-liable"].map((h) => <TableHead key={h} className="overline">{h}</TableHead>)}
+            </TableRow></TableHeader>
+            <TableBody>
+              {list.map((r) => (
+                <TableRow key={r.pay_item_id}>
+                  <TableCell className="text-xs num">{r.code}</TableCell>
+                  <TableCell className="text-xs font-semibold">{r.label}</TableCell>
+                  <TableCell className="text-xs capitalize">{r.kind}</TableCell>
+                  <TableCell className="text-xs capitalize">{r.calc_type.replace("_", " ")}</TableCell>
+                  <TableCell className="text-xs num">{r.default_rate}</TableCell>
+                  <TableCell className="text-xs">{r.taxable ? "Yes" : "No"}</TableCell>
+                  <TableCell className="text-xs">{r.super_liable ? "Yes" : "No"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      <div className="p-4 border-t border-border grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div><Label className="overline">Code</Label><Input value={f.code} onChange={set("code")} className="rounded-sm num" data-testid="pi-code" /></div>
+        <div><Label className="overline">Label</Label><Input value={f.label} onChange={set("label")} className="rounded-sm" data-testid="pi-label" /></div>
+        <div><Label className="overline">Kind</Label>
+          <Select value={f.kind} onValueChange={set("kind")}>
+            <SelectTrigger className="rounded-sm text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent className="bg-popover">{[["earning", "Earning"], ["deduction", "Deduction"], ["leave", "Leave"]].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+          </Select></div>
+        <div><Label className="overline">Calc</Label>
+          <Select value={f.calc_type} onValueChange={set("calc_type")}>
+            <SelectTrigger className="rounded-sm text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent className="bg-popover">{[["hourly", "Hourly"], ["fixed", "Fixed"], ["percent_of_base", "% of base"], ["percent_loading", "% loading"], ["units_rate", "Units × rate"]].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+          </Select></div>
+        <div><Label className="overline">Default rate</Label><Input value={f.default_rate} onChange={set("default_rate")} className="rounded-sm num" /></div>
+        <div className="flex items-center gap-3"><Switch checked={f.taxable} onCheckedChange={(v) => setF({ ...f, taxable: v })} /><span className="text-xs">Taxable</span></div>
+        <div className="flex items-center gap-3"><Switch checked={f.super_liable} onCheckedChange={(v) => setF({ ...f, super_liable: v })} /><span className="text-xs">Super liable</span></div>
+        <div><Button onClick={add} disabled={!f.code.trim() || !f.label.trim()} className="rounded-sm bg-primary text-primary-foreground" data-testid="pi-add">Add pay item</Button></div>
+      </div>
+    </Section>
+  );
+}
+
+function LeaveTypes() {
+  const [list, setList] = useState(null);
+  const [f, setF] = useState({ code: "", label: "", accrual_hours_per_year: "0", is_active: true });
+  const load = () => api.get("/payroll/leave-types").then(({ data }) => setList(data.items || [])).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  const set = (k) => (v) => setF((p) => ({ ...p, [k]: typeof v === "string" ? v : v.target.value }));
+  const add = async () => {
+    try { await api.post("/payroll/leave-types", f); toast.success("Leave type created"); setF({ ...f, code: "", label: "" }); load(); }
+    catch (e) { toast.error(errText(e)); }
+  };
+  return (
+    <Section title={`Leave types ${list ? `(${list.length})` : ""}`} testId="payroll-leave-types">
+      {list && list.length > 0 && (
+        <div className="divide-y divide-border">
+          {list.map((r) => (
+            <div key={r.leave_type_id} className="flex items-center justify-between px-4 py-2.5 text-xs">
+              <span><span className="num mr-2">{r.code}</span>{r.label}</span>
+              <span className="num text-muted-foreground">{r.accrual_hours_per_year} h/yr</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="p-4 border-t border-border flex gap-2 flex-wrap">
+        <Input value={f.code} onChange={set("code")} placeholder="Code" className="rounded-sm max-w-[140px] text-sm num" />
+        <Input value={f.label} onChange={set("label")} placeholder="Label" className="rounded-sm max-w-xs text-sm" />
+        <Input value={f.accrual_hours_per_year} onChange={set("accrual_hours_per_year")} placeholder="Hours/yr" className="rounded-sm max-w-[120px] text-sm num" />
+        <Button onClick={add} disabled={!f.code.trim() || !f.label.trim()} className="rounded-sm bg-primary text-primary-foreground">Add</Button>
+      </div>
+    </Section>
+  );
+}
+

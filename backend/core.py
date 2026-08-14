@@ -207,3 +207,22 @@ async def ensure_indexes():
     await db.daily_fields.create_index([("business_id", 1), ("sort", 1)])
     await db.daily_entries.create_index([("business_id", 1), ("entry_date", -1)])
     await db.daily_entries.create_index([("business_id", 1), ("fy", 1), ("month_key", 1)])
+    # ----- Payroll (Phase 1) -----
+    await db.payroll_settings.create_index("business_id", unique=True)
+    await db.employees.create_index([("business_id", 1), ("last_name", 1)])
+    await db.employees.create_index([("business_id", 1), ("employee_id", 1)], unique=True)
+    await db.employees.create_index([("business_id", 1), ("status", 1)])
+    await db.employee_pay_settings.create_index(
+        [("business_id", 1), ("employee_id", 1), ("effective_from", -1)])
+    await db.employee_super.create_index(
+        [("business_id", 1), ("employee_id", 1)], unique=True)
+    await db.employee_tax_settings.create_index(
+        [("business_id", 1), ("employee_id", 1)], unique=True)
+    await db.employee_bank_details.create_index(
+        [("business_id", 1), ("employee_id", 1)], unique=True)
+    await db.employee_leave_balances.create_index(
+        [("business_id", 1), ("employee_id", 1), ("leave_type", 1)], unique=True)
+    await db.pay_items.create_index(
+        [("business_id", 1), ("code", 1)], unique=True)
+    await db.pay_leave_types.create_index(
+        [("business_id", 1), ("code", 1)], unique=True)
