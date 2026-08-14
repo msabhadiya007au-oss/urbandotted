@@ -1,0 +1,9 @@
+# Render Static Site rewrites
+#
+# Proxy API calls to the backend so they appear same-origin to the browser.
+# This makes auth cookies FIRST-PARTY — works in Chrome Incognito, Safari,
+# Edge, and any browser regardless of third-party cookie settings.
+/api/*  https://urbandotted-api.onrender.com/api/:splat  200
+
+# Single-page app fallback: any non-file, non-/api path serves index.html.
+/*      /index.html                                     200

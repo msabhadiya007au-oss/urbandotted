@@ -13,7 +13,13 @@ from core import db, new_id, now_iso, current_fy
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 JWT_ALGORITHM = "HS256"
-EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+# Google OAuth is opt-in. When disabled the /session endpoint returns 501 and the
+# frontend hides the button. Set GOOGLE_OAUTH_ENABLED=true and configure a URL
+# (via GOOGLE_SESSION_URL, e.g. your own oauth-session-exchange service) to
+# enable it. NEVER hardcode an Emergent-only URL as a default.
+GOOGLE_OAUTH_ENABLED = os.environ.get("GOOGLE_OAUTH_ENABLED", "false").strip().lower() == "true"
+GOOGLE_SESSION_URL = os.environ.get("GOOGLE_SESSION_URL", "").strip()
 
 
 def hash_password(password: str) -> str:
@@ -43,11 +49,22 @@ def create_refresh_token(user_id: str) -> str:
                       get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+# Cookie flags are configurable so:
+#   - production (same-origin via Render Static Site rewrite): SameSite=Lax, Secure=True
+#   - local dev on http://localhost:                          : SameSite=Lax, Secure=False
+#   - cross-site fallback (no rewrite):                        : SameSite=None, Secure=True
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").strip().lower() != "false"
+COOKIE_SAMESITE = (os.environ.get("COOKIE_SAMESITE", "lax").strip().lower()
+                   if os.environ.get("COOKIE_SAMESITE") else "lax")
+if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+    COOKIE_SAMESITE = "lax"
+
+
 def set_auth_cookies(response: Response, access: str, refresh: str):
-    response.set_cookie("access_token", access, httponly=True, secure=True,
-                        samesite="none", max_age=900, path="/")
-    response.set_cookie("refresh_token", refresh, httponly=True, secure=True,
-                        samesite="none", max_age=604800, path="/")
+    response.set_cookie("access_token", access, httponly=True, secure=COOKIE_SECURE,
+                        samesite=COOKIE_SAMESITE, max_age=900, path="/")
+    response.set_cookie("refresh_token", refresh, httponly=True, secure=COOKIE_SECURE,
+                        samesite=COOKIE_SAMESITE, max_age=604800, path="/")
 
 
 async def create_default_business(user_id: str, name: str) -> str:
@@ -138,7 +155,10 @@ _CONFIG_DEFAULTS = {"allow_signups": True}
 
 async def _get_auth_config() -> dict:
     doc = await db.app_config.find_one({"_id": _CONFIG_DOC_ID}) or {}
-    return {**_CONFIG_DEFAULTS, **{k: v for k, v in doc.items() if k in _CONFIG_DEFAULTS}}
+    merged = {**_CONFIG_DEFAULTS, **{k: v for k, v in doc.items() if k in _CONFIG_DEFAULTS}}
+    # Environment-driven (not stored in DB — reflects deploy config)
+    merged["google_oauth_enabled"] = bool(GOOGLE_OAUTH_ENABLED and GOOGLE_SESSION_URL)
+    return merged
 
 
 @router.get("/config")
@@ -185,12 +205,16 @@ async def login(body: LoginIn, request: Request, response: Response):
 
 @router.post("/session")
 async def google_session(request: Request, response: Response):
-    """Exchange Emergent Google Auth session_id for a persistent session cookie."""
+    """Exchange an OAuth session_id for a persistent session cookie.
+    Disabled by default. Enable by setting GOOGLE_OAUTH_ENABLED=true and
+    GOOGLE_SESSION_URL to a session-data exchange endpoint you control."""
+    if not (GOOGLE_OAUTH_ENABLED and GOOGLE_SESSION_URL):
+        raise HTTPException(status_code=501, detail="Google login is not configured on this deployment")
     session_id = request.headers.get("X-Session-ID") or (await request.json()).get("session_id")
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session_id")
     try:
-        r = requests.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": session_id}, timeout=20)
+        r = requests.get(GOOGLE_SESSION_URL, headers={"X-Session-ID": session_id}, timeout=20)
         r.raise_for_status()
         data = r.json()
     except Exception:
@@ -221,8 +245,8 @@ async def google_session(request: Request, response: Response):
         "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
         "created_at": now_iso(),
     })
-    response.set_cookie("session_token", token, httponly=True, secure=True,
-                        samesite="none", max_age=604800, path="/")
+    response.set_cookie("session_token", token, httponly=True, secure=COOKIE_SECURE,
+                        samesite=COOKIE_SAMESITE, max_age=604800, path="/")
     return await _public_user(user)
 
 
@@ -308,7 +332,7 @@ async def refresh(request: Request, response: Response):
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     response.set_cookie("access_token", create_access_token(user["user_id"], user["email"]),
-                        httponly=True, secure=True, samesite="none", max_age=900, path="/")
+                        httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=900, path="/")
     return {"ok": True}
 
 

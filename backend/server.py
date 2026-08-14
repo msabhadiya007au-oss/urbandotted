@@ -27,11 +27,25 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Urban Dotted Expense Book API")
 
-ALLOWED_ORIGINS = [o for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o]
+# CORS: only credential-bearing requests from an explicit allow-list are accepted.
+# Wildcard (*) with allow_credentials=True is refused by browsers and unsafe here,
+# so if CORS_ORIGINS is "*" (or missing) we still allow the request but WITHOUT
+# credentials — production must set CORS_ORIGINS to the exact frontend origin(s).
+_raw_origins = os.environ.get("CORS_ORIGINS", "*").strip()
+if _raw_origins in {"", "*"}:
+    ALLOWED_ORIGINS: list = ["*"]
+    _ALLOW_CREDENTIALS = False
+    logging.getLogger(__name__).warning(
+        "CORS_ORIGINS is '*'; credentials disabled. Set exact origins in production."
+    )
+else:
+    ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    _ALLOW_CREDENTIALS = True
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

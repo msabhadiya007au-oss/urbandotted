@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { api, errText } from "@/lib/api";
+import { api, errText, authErrorMessage } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,11 +16,15 @@ export default function Login() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [allowSignups, setAllowSignups] = useState(true);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
 
   useEffect(() => {
     api.get("/auth/config")
-      .then(({ data }) => setAllowSignups(data.allow_signups !== false))
-      .catch(() => setAllowSignups(true));
+      .then(({ data }) => {
+        setAllowSignups(data.allow_signups !== false);
+        setGoogleEnabled(data.google_oauth_enabled === true);
+      })
+      .catch(() => { setAllowSignups(true); setGoogleEnabled(false); });
   }, []);
 
   useEffect(() => {
@@ -43,7 +47,7 @@ export default function Login() {
       toast.success(mode === "login" ? "Welcome back" : "Account created");
       navigate("/dashboard");
     } catch (err) {
-      setError(errText(err));
+      setError(authErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -140,16 +144,20 @@ export default function Login() {
 
           {allowSignups && (
             <>
-              <div className="flex items-center gap-3 my-5">
-                <span className="h-px flex-1 bg-border" />
-                <span className="overline">or</span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
+              {googleEnabled && (
+                <>
+                  <div className="flex items-center gap-3 my-5">
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="overline">or</span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
 
-              <Button variant="outline" onClick={google} data-testid="google-login-btn"
-                className="w-full rounded-sm h-10 border-border hover:bg-accent">
-                Continue with Google
-              </Button>
+                  <Button variant="outline" onClick={google} data-testid="google-login-btn"
+                    className="w-full rounded-sm h-10 border-border hover:bg-accent">
+                    Continue with Google
+                  </Button>
+                </>
+              )}
 
               <p className="text-xs text-muted-foreground mt-6 text-center">
                 {mode === "login" ? "No account yet?" : "Already registered?"}{" "}
@@ -185,7 +193,7 @@ export function AuthCallback() {
         await onAuthed(data);
         navigate("/dashboard", { replace: true });
       } catch (e) {
-        toast.error(errText(e));
+        toast.error(authErrorMessage(e));
         window.history.replaceState(null, "", "/");
         navigate("/", { replace: true });
       }

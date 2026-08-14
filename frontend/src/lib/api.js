@@ -1,6 +1,12 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Backend URL:
+//   - Set REACT_APP_BACKEND_URL to a full URL when the API is on a different origin
+//     (e.g. Emergent preview). In this case cookies rely on SameSite=None; Secure.
+//   - Leave REACT_APP_BACKEND_URL empty (or unset) in production when the Static
+//     Site rewrites /api/* to the backend — API calls become same-origin and
+//     cookies are first-party (works in Incognito, Safari, Edge, everywhere).
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/+$/, "");
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API, withCredentials: true });
@@ -24,6 +30,29 @@ export function apiError(detail) {
 }
 
 export const errText = (e) => apiError(e?.response?.data?.detail) || e?.message || "Request failed";
+
+// Auth-specific error messages that distinguish network/CORS from server errors.
+export function authErrorMessage(err) {
+  // No response object at all => network, CORS or DNS failure
+  if (!err || !err.response) {
+    // Some browsers surface "Network Error" from axios when the request never
+    // returned (offline, DNS, blocked by CORS, or backend cold-starting).
+    return "We couldn't reach the server. It may be waking up on a free plan — please try again in a few seconds. If this keeps happening, check your internet connection.";
+  }
+  const status = err.response.status;
+  const detail = apiError(err.response.data?.detail);
+  if (status === 401) return "Invalid email or password.";
+  if (status === 403) return detail || "Access denied.";
+  if (status === 404) return "This account or resource was not found.";
+  if (status === 422) return detail || "Some fields are missing or invalid.";
+  if (status === 429) return "Too many attempts. Please wait 15 minutes and try again.";
+  if (status === 501) return detail || "This sign-in method isn't configured on this deployment.";
+  if (status === 502 || status === 503 || status === 504) {
+    return "The server is starting up or temporarily unreachable. Please try again in a moment.";
+  }
+  if (status >= 500) return "Server error. Please try again shortly.";
+  return detail || "Something went wrong. Please try again.";
+}
 
 // ---------- en-AU formatting ----------
 const money0 = new Intl.NumberFormat("en-AU", {
