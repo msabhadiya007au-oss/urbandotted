@@ -523,6 +523,28 @@ async def finalise(ref: str, business_id: str = Depends(get_business_id),
         {"$set": {"status": "finalised", "finalised_at": now_iso(),
                    "finalised_by": user.get("email"), "payslip_refs": payslip_refs}},
     )
+
+    # ---- Phase 4 side-effects: super ledger + leave accruals ----
+    # Never modifies the immutable payslips; only writes to phase-4 collections.
+    try:
+        from routes_payroll_phase4 import (
+            _upsert_super_liability_from_payslip, _accrue_leave_from_pay_run,
+        )
+        # Reload the payslips we just inserted (with `super` + `employee`)
+        new_slips = await db.payslips.find(
+            {"business_id": business_id, "pay_run_ref": ref}, {"_id": 0}
+        ).to_list(1000)
+        for slip in new_slips:
+            await _upsert_super_liability_from_payslip(business_id, slip, user.get("email", ""))
+            await _accrue_leave_from_pay_run(
+                business_id, ref, slip["employee_id"], slip["payment_date"],
+                user_email=user.get("email", ""),
+            )
+    except Exception as e:
+        # Never block finalise on ledger side-effects; log via audit
+        await audit(business_id, user, "pay_run", ref, "phase4_side_effect_error",
+                    after={"error": str(e)})
+
     await audit(business_id, user, "pay_run", ref, "finalise", after=totals)
     return {"ok": True, "status": "finalised", "totals": totals, "payslip_refs": payslip_refs}
 

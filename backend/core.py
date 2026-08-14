@@ -242,3 +242,19 @@ async def ensure_indexes():
         [("business_id", 1), ("employee_id", 1), ("fy", 1)])
     await db.payslips.create_index(
         [("business_id", 1), ("pay_run_ref", 1)])
+    # ----- Payroll Phase 4: super, leave, reports -----
+    await db.super_liabilities.create_index(
+        [("business_id", 1), ("employee_id", 1), ("fy", 1), ("quarter", 1)], unique=True)
+    await db.super_liabilities.create_index(
+        [("business_id", 1), ("status", 1), ("due_date", 1)])
+    await db.leave_transactions.create_index(
+        [("business_id", 1), ("employee_id", 1), ("leave_type", 1),
+         ("effective_date", -1)])
+    await db.leave_transactions.create_index(
+        [("business_id", 1), ("source", 1), ("source_ref", 1), ("txn_type", 1)])
+    await db.leave_requests.create_index(
+        [("business_id", 1), ("status", 1), ("start_date", -1)])
+    await db.leave_requests.create_index(
+        [("business_id", 1), ("employee_id", 1)])
+    await db.employee_leave_settings.create_index(
+        [("business_id", 1), ("employee_id", 1)], unique=True)

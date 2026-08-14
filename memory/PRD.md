@@ -127,8 +127,30 @@ Manual daily bookkeeping workflow. A whole trading day is entered from one scree
   `ReportView` now guards against an unexpected shape. A regression test asserts all 16 report keys
   return `columns[]` + `rows[]`.
 
+## Payroll Module (Aug 2026)
+Full-featured Australian payroll, layered on top of the accounting core WITHOUT touching the main `transactions` collection (Phase 5 will connect payroll → P&L).
+
+**Phase 1** — Employer profile, Employees CRUD (identity/employment/pay/super/tax/bank/leave), pay-settings history (effective-from), pay-items and leave-types, bank details AES/Fernet-encrypted at rest (`PAYROLL_ENC_KEY`).
+
+**Phase 2** — Pay Runs (draft → calculated → finalised → voided), `payroll_calc.py` decimal-safe engine (hourly, salary, fixed, percent loading, percent-of-base, deductions pre/post-tax, PAYG manual, employer super = superable × sg_rate), duplicate-period guard, YTD immutability.
+
+**Phase 3** — Payslips: immutable snapshots per employee per pay run, YTD cumulative engine, reportlab PDF generation (deterministic, VOID stamp), storage-agnostic PDF register, download + void (audit-preserved).
+
+**Phase 4 (14 Aug 2026)** — Operational payroll:
+- **Super Liability Ledger** (`super_liabilities`): auto-generated on finalise per employee per AU SG quarter (Q1 Jul-Sep due 28 Oct etc.), status accrued/partial/paid, mark-paid workflow with payment history array, overdue detection, contributing_payslip_refs.
+- **Leave**: per-employee `employee_leave_settings` (accruals per pay period, configurable per employee — NO award-specific defaults, casuals do not auto-accrue), immutable `leave_transactions` ledger (accrual/taken/adjustment/opening), balance snapshots derived from the ledger, `leave_requests` (pending → approved/rejected/cancelled) with automatic taken-row posting on approve when start_date <= today and reversing adjustment on cancel.
+- **Reports** (JSON + CSV UTF-8-BOM + reportlab PDF): Payroll Summary (period), Payment Summary per employee (STP-style), Super Payable by Quarter, Leave Balances Snapshot.
+- **Reminders**: `/api/payroll/reminders/scan` writes to the global `reminders` collection (kinds `payroll_super_overdue`, `payroll_missing_bank/super/tax`, `payroll_leave_pending`) so the existing topbar counter and Reminders page surface them.
+- **Dashboard**: `/api/payroll/dashboard-full` — active employees, drafts, missing-details, pending leave, YTD gross/net/super/employer-cost, super outstanding/overdue with overdue table, leave liability hours, monthly bar chart, next draft.
+- **Frontend**: `/payroll/super`, `/payroll/leave` (Requests + Ledger tabs), `/payroll/reports` (4 report tabs, CSV/PDF exports), `Leave Settings` tab on EmployeeProfile, expanded dashboard.
+
+**Guardrails respected** — no writes to `transactions`, existing 72 accounting tests still green, all Phase 1-4 tests (85 unit + 30 API = 115) passing.
+
+**Testing** — `/app/tests/test_payroll_phase{1..4}.py` + `/app/backend/tests/test_payroll_phase4_integration.py`.
+
 ## Prioritised Backlog
 **P0 (next)**
+- **Payroll Phase 5 — Accounting Ledger Integration**: post finalised payroll totals (wages, PAYG payable, super payable, deductions) as journal entries into the main `transactions` collection so they flow into P&L, GST Center, Cash Flow and Accountant Export. Idempotent by pay_run_ref; never mutates the immutable payslip snapshot.
 - Shopify integration (Phase 4): OAuth install, webhooks (orders/refunds/payouts), staging + mapper,
   idempotent upsert, never overwrite manually-reviewed classifications without confirmation.
 - Email delivery of missing-expense reminders (monthly digest).

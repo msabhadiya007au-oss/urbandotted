@@ -21,6 +21,7 @@ import routes_reports
 import routes_daily
 import routes_payroll
 import routes_payroll_runs
+import routes_payroll_phase4
 from storage import init_storage
 
 logging.basicConfig(level=logging.INFO,
@@ -81,6 +82,7 @@ app.include_router(routes_reports.router)
 app.include_router(routes_daily.router)
 app.include_router(routes_payroll.router)
 app.include_router(routes_payroll_runs.router)
+app.include_router(routes_payroll_phase4.router)
 
 
 @app.get("/api/")

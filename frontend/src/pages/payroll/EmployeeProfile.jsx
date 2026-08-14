@@ -47,7 +47,7 @@ export default function EmployeeProfile() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="rounded-sm bg-muted h-9 flex-wrap h-auto">
           {[["overview", "Overview"], ["employment", "Employment"], ["pay", "Pay Settings"], ["super", "Super"],
-            ["tax", "Tax / PAYG"], ["bank", "Bank"], ["leave", "Leave"]].map(([k, l]) => (
+            ["tax", "Tax / PAYG"], ["bank", "Bank"], ["leave", "Leave"], ["leave-settings", "Leave Settings"]].map(([k, l]) => (
             <TabsTrigger key={k} value={k} className="rounded-sm text-xs" data-testid={`emp-tab-${k}`}>{l}</TabsTrigger>
           ))}
         </TabsList>
@@ -59,6 +59,7 @@ export default function EmployeeProfile() {
         <TabsContent value="tax" className="mt-4"><TaxTab employeeId={employeeId} /></TabsContent>
         <TabsContent value="bank" className="mt-4"><BankTab employeeId={employeeId} /></TabsContent>
         <TabsContent value="leave" className="mt-4"><LeaveTab employeeId={employeeId} /></TabsContent>
+        <TabsContent value="leave-settings" className="mt-4"><LeaveSettingsTab employeeId={employeeId} /></TabsContent>
       </Tabs>
     </div>
   );
@@ -381,6 +382,63 @@ function BankTab({ employeeId }) {
             {busy ? "Saving…" : "Save bank details"}
           </Button>
           {(!reveal && masked?.has_details) && <span className="ml-3 text-xs text-muted-foreground">Reveal first to edit BSB/account number.</span>}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function LeaveSettingsTab({ employeeId }) {
+  const [f, setF] = useState({ accruals: [], notes: "" });
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    try { const { data } = await api.get(`/payroll/employees/${employeeId}/leave-settings`); setF({ accruals: data.accruals || [], notes: data.notes || "" }); }
+    catch (e) { toast.error(errText(e)); }
+  };
+  useEffect(() => { load(); }, [employeeId]); // eslint-disable-line
+
+  const upd = (i, k, v) => setF((p) => ({ ...p, accruals: p.accruals.map((a, idx) => idx === i ? { ...a, [k]: v } : a) }));
+  const add = () => setF((p) => ({ ...p, accruals: [...p.accruals, { leave_type: "annual", hours_per_pay_period: "0", opening_balance_hours: "0", active: true }] }));
+  const del = (i) => setF((p) => ({ ...p, accruals: p.accruals.filter((_, idx) => idx !== i) }));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/payroll/employees/${employeeId}/leave-settings`, f);
+      toast.success("Leave settings saved");
+      load();
+    } catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
+  };
+
+  return (
+    <Section title="Leave accrual settings (per employee)" testId="emp-leave-settings">
+      <Disclaimer>Configure how much this employee accrues each pay period, per leave type. Casual employees do not accrue unless you explicitly set a rate here. Accruals post automatically when a pay run is finalised — historical balances are never rewritten.</Disclaimer>
+      <div className="p-4 space-y-3">
+        {f.accruals.length === 0 && <p className="text-sm text-muted-foreground">No leave accruals configured. Add one to start accruing hours on each finalised pay run.</p>}
+        {f.accruals.map((a, i) => (
+          <div key={i} className="grid gap-2 sm:grid-cols-5 border border-border p-3" data-testid={`leave-accrual-row-${i}`}>
+            <div><Label className="overline">Leave type</Label>
+              <Input value={a.leave_type} onChange={(e) => upd(i, "leave_type", e.target.value)} className="rounded-sm" data-testid={`leave-accrual-type-${i}`} /></div>
+            <div><Label className="overline">Hours / pay period</Label>
+              <Input type="number" step="0.0001" value={a.hours_per_pay_period}
+                onChange={(e) => upd(i, "hours_per_pay_period", e.target.value)} className="rounded-sm num" data-testid={`leave-accrual-hrs-${i}`} /></div>
+            <div><Label className="overline">Opening balance (h)</Label>
+              <Input type="number" step="0.0001" value={a.opening_balance_hours}
+                onChange={(e) => upd(i, "opening_balance_hours", e.target.value)} className="rounded-sm num" /></div>
+            <div className="flex items-center gap-2 mt-6">
+              <Switch checked={!!a.active} onCheckedChange={(v) => upd(i, "active", v)} />
+              <span className="text-xs">Active</span>
+            </div>
+            <div className="mt-6">
+              <Button size="sm" variant="outline" className="rounded-sm text-xs h-8" onClick={() => del(i)} data-testid={`leave-accrual-del-${i}`}>Remove</Button>
+            </div>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="rounded-sm text-xs" onClick={add} data-testid="leave-accrual-add">Add accrual row</Button>
+          <Button size="sm" className="rounded-sm bg-primary text-primary-foreground text-xs" onClick={save} disabled={busy} data-testid="leave-settings-save">
+            {busy ? "Saving…" : "Save leave settings"}
+          </Button>
         </div>
       </div>
     </Section>
